@@ -1,12 +1,12 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.3.1"
-DISTRO="debian"
+VERSION="0.3.2"
+DISTRO="${DISTRO:-debian}"
 LINUX_USER="${LINUX_USER:-felipe}"
 DISPLAY_NUM="${DISPLAY_NUM:-:1}"
-DISPLAY_ID="${DISPLAY_NUM#:}"
 LOCALE="${LOCALE:-es_CO.UTF-8}"
+
 INSTALL_DEV_STACK="${INSTALL_DEV_STACK:-1}"
 INSTALL_OFFICE="${INSTALL_OFFICE:-1}"
 INSTALL_MEDIA="${INSTALL_MEDIA:-1}"
@@ -40,30 +40,14 @@ distro_exists(){
 
 installed(){
   distro_exists || return 1
-  [[ -f "$STATE_FILE" ]] && return 0
+  if [[ -f "$STATE_FILE" ]]; then
+    return 0
+  fi
   if proot-distro login "$DISTRO" -- test -x /usr/bin/xfce4-session >/dev/null 2>&1; then
     date -Iseconds > "$STATE_FILE"
     return 0
   fi
   return 1
-}
-
-usage(){
-  cat <<EOF
-Mobile Debian Desktop $VERSION
-
-Uso:
-  $0                 Instala si hace falta; de lo contrario inicia XFCE.
-  $0 install         Instala o repara el entorno.
-  $0 start           Inicia Termux:X11 y XFCE.
-  $0 stop            Cierra XFCE, X11 y PulseAudio.
-  $0 restart         Reinicia la sesión.
-  $0 update          Actualiza Termux/Debian sin reinstalar IA ni Mesa.
-  $0 update-ai       Actualiza explícitamente Claude Code y Codex.
-  $0 refresh-gpu     Reinstala explícitamente Mesa KGSL.
-  $0 doctor          Comprueba aplicaciones y GPU.
-  $0 status          Muestra el estado.
-EOF
 }
 
 host_packages(){
@@ -77,45 +61,57 @@ host_packages(){
 
 ensure_debian(){
   if distro_exists; then
-    log "Debian ya existe; se conservará."
+    log "Debian ya está instalado"
   else
     log "Instalando Debian"
     proot-distro install "$DISTRO"
   fi
 }
 
-write_debian_setup(){
-  cat > "$TMPDIR/mobile-debian-setup.sh" <<'DEBIAN'
+configure_debian(){
+  local ai_force="${1:-0}"
+  local gpu_force="${2:-0}"
+  local host_has_kgsl=0
+  [[ -e /dev/kgsl-3d0 ]] && host_has_kgsl=1
+
+  cat > "$TMPDIR/mobile-debian-configure.sh" <<'DEBIAN'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-
-: "${LINUX_USER:?}" "${LOCALE:?}"
-: "${INSTALL_DEV_STACK:?}" "${INSTALL_OFFICE:?}" "${INSTALL_MEDIA:?}"
-: "${INSTALL_VSCODE:?}" "${INSTALL_AI_CLI:?}" "${INSTALL_GPU:?}"
-: "${AI_FORCE:?}" "${GPU_FORCE:?}" "${HOST_HAS_KGSL:?}"
-
 export DEBIAN_FRONTEND=noninteractive
+
+LINUX_USER="$1"
+LOCALE="$2"
+INSTALL_DEV_STACK="$3"
+INSTALL_OFFICE="$4"
+INSTALL_MEDIA="$5"
+INSTALL_VSCODE="$6"
+INSTALL_AI_CLI="$7"
+INSTALL_GPU="$8"
+AI_FORCE="$9"
+GPU_FORCE="${10}"
+HOST_HAS_KGSL="${11}"
+
 say(){ printf '[Debian] %s\n' "$*"; }
-warn(){ printf '[Debian aviso] %s\n' "$*" >&2; }
+warn(){ printf '[AVISO] %s\n' "$*" >&2; }
+die(){ printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
 say "Actualizando paquetes"
 apt-get update
 apt-get dist-upgrade -y
 
 packages=(
-  sudo locales tzdata ca-certificates curl wget gnupg jq gawk file xz-utils
+  sudo locales tzdata ca-certificates curl wget gnupg jq file xz-utils
   dbus-x11 xauth x11-xserver-utils xdg-utils desktop-base
   xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd
   thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs pavucontrol
   mesa-utils vulkan-tools chromium
-  fonts-noto-core fonts-noto-color-emoji fonts-liberation
-  fonts-crosextra-carlito fonts-crosextra-caladea
+  fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
 )
 [[ "$INSTALL_OFFICE" == 1 ]] && packages+=(libreoffice-writer libreoffice-l10n-es hunspell-es)
 [[ "$INSTALL_MEDIA" == 1 ]] && packages+=(vlc mpv ffmpeg)
 [[ "$INSTALL_DEV_STACK" == 1 ]] && packages+=(git build-essential pkg-config python3 python3-pip python3-venv nodejs npm)
 
-say "Instalando o reparando XFCE y aplicaciones"
+say "Instalando y reparando XFCE y aplicaciones"
 apt-get install -y --no-install-recommends "${packages[@]}"
 
 if ! grep -q "^${LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
@@ -135,7 +131,8 @@ USER_HOME="$(getent passwd "$LINUX_USER" | cut -d: -f6)"
 if [[ "$INSTALL_VSCODE" == 1 ]]; then
   say "Configurando Visual Studio Code ARM64"
   install -d -m755 /usr/share/keyrings
-  curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor --yes -o /usr/share/keyrings/microsoft.gpg
+  curl -fsSL https://packages.microsoft.com/keys/microsoft.asc |
+    gpg --dearmor --yes -o /usr/share/keyrings/microsoft.gpg
   cat > /etc/apt/sources.list.d/vscode.sources <<'SRC'
 Types: deb
 URIs: https://packages.microsoft.com/repos/code
@@ -157,7 +154,8 @@ force="${1:-0}"
 mkdir -p "$HOME/.local/bin" "$HOME/.cache/mobile-debian/installers"
 export PATH="$HOME/.local/bin:$PATH"
 touch "$HOME/.profile"
-grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.profile" || printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.profile"
+grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.profile" ||
+  printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.profile"
 
 if [[ "$force" == 1 ]] || ! command -v claude >/dev/null 2>&1; then
   echo "Instalando/actualizando Claude Code"
@@ -177,7 +175,8 @@ fi
 AI
   chmod 0755 /tmp/mobile-debian-ai.sh
   chown "$LINUX_USER:$LINUX_USER" /tmp/mobile-debian-ai.sh
-  su - "$LINUX_USER" -c "bash /tmp/mobile-debian-ai.sh '$AI_FORCE'" || warn "Alguna CLI de IA no pudo instalarse."
+  su - "$LINUX_USER" -c "bash /tmp/mobile-debian-ai.sh '$AI_FORCE'" ||
+    warn "Alguna CLI de IA no pudo instalarse."
 }
 install_ai
 
@@ -201,9 +200,11 @@ configure_gpu(){
   fi
 
   say "Descargando Mesa KGSL compatible"
-  url="$(curl -fsSL https://api.github.com/repos/lfdevs/mesa-for-android-container/releases/latest \
-    | jq -r '.assets[] | select(.name | endswith("debian_trixie_arm64.tar.gz")) | .browser_download_url' \
-    | head -n1)"
+  url="$(
+    curl -fsSL https://api.github.com/repos/lfdevs/mesa-for-android-container/releases/latest |
+      jq -r '.assets[] | select(.name | endswith("debian_trixie_arm64.tar.gz")) | .browser_download_url' |
+      head -n1
+  )"
   if [[ -z "$url" || "$url" == null ]]; then
     warn "No se encontró un paquete Mesa compatible."
     printf '%s\n' "$mode" > /etc/mobile-debian-gpu
@@ -221,14 +222,29 @@ configure_gpu(){
 configure_gpu
 
 say "Configurando aplicaciones y escritorio"
-install -d -m755 /usr/local/bin "$USER_HOME/.local/share/applications" "$USER_HOME/Desktop" "$USER_HOME/.config/autostart" "$USER_HOME/.local/bin"
+install -d -m755 \
+  /usr/local/bin \
+  "$USER_HOME/.local/share/applications" \
+  "$USER_HOME/Desktop" \
+  "$USER_HOME/.config/autostart" \
+  "$USER_HOME/.local/bin"
 
 cat > /usr/local/bin/chromium-mobile <<'CHROME'
 #!/usr/bin/env bash
-[[ -e /dev/kgsl-3d0 ]] && export MESA_LOADER_DRIVER_OVERRIDE=kgsl TU_DEBUG=noconform
-exec chromium --no-sandbox --disable-dev-shm-usage --password-store=basic \
-  --ozone-platform=x11 --use-gl=angle --use-angle=gl --ignore-gpu-blocklist \
-  --enable-gpu-rasterization "$@"
+if [[ -e /dev/kgsl-3d0 ]]; then
+  export MESA_LOADER_DRIVER_OVERRIDE=kgsl
+  export TU_DEBUG=noconform
+fi
+exec chromium \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --password-store=basic \
+  --ozone-platform=x11 \
+  --use-gl=angle \
+  --use-angle=gl \
+  --ignore-gpu-blocklist \
+  --enable-gpu-rasterization \
+  "$@"
 CHROME
 chmod 0755 /usr/local/bin/chromium-mobile
 
@@ -250,6 +266,7 @@ Icon=chromium
 Terminal=false
 Categories=Network;WebBrowser;
 DESK
+
 cat > "$APP_DIR/word-online.desktop" <<'DESK'
 [Desktop Entry]
 Type=Application
@@ -260,73 +277,83 @@ Terminal=false
 Categories=Office;
 DESK
 
-cp -f "$APP_DIR/chromium-mobile.desktop" "$USER_HOME/Desktop/"
-[[ "$INSTALL_OFFICE" == 1 ]] && cp -f "$APP_DIR/word-online.desktop" "$USER_HOME/Desktop/" || true
-for file in /usr/share/applications/vlc.desktop /usr/share/applications/libreoffice-writer.desktop /usr/share/applications/code.desktop /usr/share/applications/com.visualstudio.code.desktop; do
-  [[ -f "$file" ]] && cp -f "$file" "$USER_HOME/Desktop/" || true
+cp "$APP_DIR/chromium-mobile.desktop" "$USER_HOME/Desktop/"
+cp "$APP_DIR/word-online.desktop" "$USER_HOME/Desktop/"
+for desktop_file in \
+  /usr/share/applications/vlc.desktop \
+  /usr/share/applications/libreoffice-writer.desktop \
+  /usr/share/applications/code.desktop; do
+  [[ -f "$desktop_file" ]] && cp "$desktop_file" "$USER_HOME/Desktop/"
 done
 chmod +x "$USER_HOME/Desktop/"*.desktop 2>/dev/null || true
 
-wallpaper="$(find /usr/share/desktop-base -type f \
-  \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.svg' \) \
-  -path '*/wallpaper/*' 2>/dev/null | head -n1 || true)"
+wallpaper="$(
+  find /usr/share/desktop-base -type f \
+    \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.svg' \) \
+    -path '*/wallpaper/*' 2>/dev/null |
+    sort |
+    head -n1 || true
+)"
 printf '%s\n' "$wallpaper" > /etc/mobile-debian-wallpaper
 
 cat > "$USER_HOME/.local/bin/mobile-xfce-fixups" <<'FIX'
 #!/usr/bin/env bash
-sleep 4
+set -u
+sleep 3
 xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create >/dev/null 2>&1 || true
-xfconf-query -c xfce4-session -p /general/SaveOnExit -t bool -s false --create >/dev/null 2>&1 || true
-marker="$HOME/.config/mobile-debian/visuals-v1"
-if [[ ! -f "$marker" ]]; then
-  wallpaper="$(cat /etc/mobile-debian-wallpaper 2>/dev/null || true)"
-  if [[ -n "$wallpaper" && -f "$wallpaper" ]]; then
-    mapfile -t props < <(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$' || true)
-    [[ ${#props[@]} -gt 0 ]] || props=(/backdrop/screen0/monitor0/workspace0/last-image)
-    for prop in "${props[@]}"; do
-      xfconf-query -c xfce4-desktop -p "$prop" -t string -s "$wallpaper" --create >/dev/null 2>&1 || true
-      xfconf-query -c xfce4-desktop -p "${prop%/last-image}/image-style" -t int -s 5 --create >/dev/null 2>&1 || true
-    done
-    xfdesktop --reload >/dev/null 2>&1 || true
+wallpaper="$(cat /etc/mobile-debian-wallpaper 2>/dev/null || true)"
+if [[ -n "$wallpaper" && -f "$wallpaper" ]]; then
+  mapfile -t properties < <(
+    xfconf-query -c xfce4-desktop -l 2>/dev/null |
+      grep '/last-image$' || true
+  )
+  if [[ ${#properties[@]} -eq 0 ]]; then
+    properties=(/backdrop/screen0/monitor0/workspace0/last-image)
   fi
-  mkdir -p "$(dirname "$marker")"
-  touch "$marker"
+  for property in "${properties[@]}"; do
+    xfconf-query -c xfce4-desktop -p "$property" -t string -s "$wallpaper" --create >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-desktop -p "${property%/last-image}/image-style" -t int -s 5 --create >/dev/null 2>&1 || true
+  done
+  xfdesktop --reload >/dev/null 2>&1 || true
 fi
 FIX
 chmod 0755 "$USER_HOME/.local/bin/mobile-xfce-fixups"
 
 for item in light-locker.desktop xiccd.desktop polkit-mate-authentication-agent-1.desktop xfce4-power-manager.desktop; do
-  printf '[Desktop Entry]\nType=Application\nHidden=true\nX-GNOME-Autostart-enabled=false\n' > "$USER_HOME/.config/autostart/$item"
+  printf '[Desktop Entry]\nType=Application\nHidden=true\nX-GNOME-Autostart-enabled=false\n' \
+    > "$USER_HOME/.config/autostart/$item"
 done
 
-chown -R "$LINUX_USER:$LINUX_USER" "$USER_HOME/.local" "$USER_HOME/.config" "$USER_HOME/Desktop"
+chown -R "$LINUX_USER:$LINUX_USER" \
+  "$USER_HOME/.local" \
+  "$USER_HOME/.config" \
+  "$USER_HOME/Desktop"
 
 say "Verificando componentes esenciales"
-for cmd in xfce4-session chromium-mobile libreoffice vlc; do
-  command -v "$cmd" >/dev/null 2>&1 || { echo "Falta el componente obligatorio: $cmd" >&2; exit 1; }
+for command_name in xfce4-session chromium-mobile; do
+  command -v "$command_name" >/dev/null 2>&1 ||
+    die "Falta el componente obligatorio: $command_name"
 done
-apt-get clean
-say "Instalación y configuración completadas"
-DEBIAN
-  chmod 0755 "$TMPDIR/mobile-debian-setup.sh"
-}
+[[ "$INSTALL_OFFICE" != 1 ]] || command -v libreoffice >/dev/null 2>&1 ||
+  die "Falta LibreOffice."
+[[ "$INSTALL_MEDIA" != 1 ]] || command -v vlc >/dev/null 2>&1 ||
+  die "Falta VLC."
 
-configure_debian(){
-  local ai_force="${1:-0}" gpu_force="${2:-0}" kgsl=0 gpu
-  [[ -e /dev/kgsl-3d0 ]] && kgsl=1
-  write_debian_setup
-  proot-distro login "$DISTRO" --shared-tmp -- env \
-    LINUX_USER="$LINUX_USER" LOCALE="$LOCALE" \
-    INSTALL_DEV_STACK="$INSTALL_DEV_STACK" INSTALL_OFFICE="$INSTALL_OFFICE" \
-    INSTALL_MEDIA="$INSTALL_MEDIA" INSTALL_VSCODE="$INSTALL_VSCODE" \
-    INSTALL_AI_CLI="$INSTALL_AI_CLI" INSTALL_GPU="$INSTALL_GPU" \
-    AI_FORCE="$ai_force" GPU_FORCE="$gpu_force" HOST_HAS_KGSL="$kgsl" \
-    bash /tmp/mobile-debian-setup.sh
+apt-get clean
+say "Configuración terminada"
+DEBIAN
+
+  chmod 0755 "$TMPDIR/mobile-debian-configure.sh"
+  proot-distro login "$DISTRO" --shared-tmp -- \
+    /bin/bash /tmp/mobile-debian-configure.sh \
+      "$LINUX_USER" "$LOCALE" \
+      "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
+      "$INSTALL_VSCODE" "$INSTALL_AI_CLI" "$INSTALL_GPU" \
+      "$ai_force" "$gpu_force" "$host_has_kgsl"
+
+  local gpu
   gpu="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
   cat > "$CONFIG_FILE" <<EOF
-CONFIG_VERSION=$VERSION
-DISTRO=$DISTRO
-LINUX_USER=$LINUX_USER
 DISPLAY_NUM=$DISPLAY_NUM
 GPU_MODE=$gpu
 EOF
@@ -339,9 +366,6 @@ load_config(){
     # shellcheck disable=SC1090
     source "$CONFIG_FILE"
   fi
-  DISPLAY_ID="${DISPLAY_NUM#:}"
-
-  # Recover installations made by versions that did not create CONFIG_FILE.
   if [[ -z "${GPU_MODE:-}" ]] && distro_exists; then
     GPU_MODE="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
   fi
@@ -351,34 +375,109 @@ load_config(){
 stop_debian_session(){
   distro_exists || return 0
   proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- bash -lc '
-    for p in xfce4-session xfce4-panel xfdesktop xfwm4 Thunar xfce4-terminal; do
-      pkill -TERM -x "$p" 2>/dev/null || true
+    for process_name in xfce4-session xfce4-panel xfdesktop xfwm4 Thunar xfce4-terminal; do
+      pkill -TERM -x "$process_name" 2>/dev/null || true
     done
   ' >/dev/null 2>&1 || true
 }
 
 x11_pids(){
-  { [[ -s "$X11_PID_FILE" ]] && cat "$X11_PID_FILE" || true; pgrep -x termux-x11 2>/dev/null || true; } \
-    | awk '/^[0-9]+$/ && !seen[$0]++'
+  {
+    [[ -s "$X11_PID_FILE" ]] && cat "$X11_PID_FILE" || true
+    pgrep -f '[c]om\.termux\.x11(\.CmdEntryPoint)?' 2>/dev/null || true
+    pgrep -f '(^|/)[t]ermux-x11([[:space:]]|$)' 2>/dev/null || true
+  } |
+    awk -v self="$$" -v parent="$PPID" '
+      /^[0-9]+$/ && $0 != self && $0 != parent && !seen[$0]++ { print }
+    '
 }
 
-stop_x11_server(){
+stop_x11_servers(){
   local -a pids=()
-  local pid alive
+  local pid alive=0
   mapfile -t pids < <(x11_pids)
+
   if [[ ${#pids[@]} -gt 0 ]]; then
-    for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+    log "Cerrando servidor Termux:X11 anterior"
+    for pid in "${pids[@]}"; do
+      kill -TERM "$pid" 2>/dev/null || true
+    done
     for _ in $(seq 1 40); do
       alive=0
-      for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && alive=1; done
+      for pid in "${pids[@]}"; do
+        kill -0 "$pid" 2>/dev/null && alive=1
+      done
       [[ "$alive" == 0 ]] && break
       sleep 0.1
     done
-    for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true; done
-    for _ in $(seq 1 20); do pgrep -x termux-x11 >/dev/null 2>&1 || break; sleep 0.1; done
+    for pid in "${pids[@]}"; do
+      kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+    done
+    sleep 0.5
   fi
-  pgrep -x termux-x11 >/dev/null 2>&1 && die "Termux:X11 sigue activo; no se tocarán sus sockets."
-  rm -f "$X11_PID_FILE" "$TMPDIR/.X${DISPLAY_ID}-lock" "$TMPDIR/.X11-unix/X${DISPLAY_ID}"
+
+  pkill -KILL -f '[c]om\.termux\.x11\.CmdEntryPoint' 2>/dev/null || true
+  pkill -KILL -f '(^|/)[t]ermux-x11([[:space:]]|$)' 2>/dev/null || true
+  sleep 0.3
+  rm -f "$X11_PID_FILE"
+}
+
+display_busy(){
+  local id="$1"
+  [[ -e "$TMPDIR/.X11-unix/X$id" || -e "$TMPDIR/.X$id-lock" ]] && return 0
+  grep -qE "(@|/)([^ ]*/)?\.X11-unix/X${id}([[:space:]]|$)" /proc/net/unix 2>/dev/null
+}
+
+start_x11_server(){
+  local requested_id="${DISPLAY_NUM#:}"
+  local -a candidates=("$requested_id")
+  local id candidate pid socket ready
+
+  for id in 1 2 3 4 5 6 7 8 9; do
+    [[ "$id" == "$requested_id" ]] || candidates+=("$id")
+  done
+
+  export XDG_RUNTIME_DIR="$TMPDIR"
+  mkdir -p "$TMPDIR/.X11-unix"
+  : > "$X11_LOG"
+
+  for id in "${candidates[@]}"; do
+    if display_busy "$id"; then
+      warn "El display :$id sigue ocupado; probando otro."
+      continue
+    fi
+
+    rm -f "$TMPDIR/.X$id-lock" "$TMPDIR/.X11-unix/X$id"
+    candidate=":$id"
+    log "Iniciando Termux:X11 en $candidate"
+    termux-x11 "$candidate" >>"$X11_LOG" 2>&1 &
+    pid=$!
+    printf '%s\n' "$pid" > "$X11_PID_FILE"
+    socket="$TMPDIR/.X11-unix/X$id"
+    ready=0
+
+    for _ in $(seq 1 60); do
+      if [[ -e "$socket" ]]; then
+        ready=1
+        break
+      fi
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.2
+    done
+
+    if [[ "$ready" == 1 ]]; then
+      DISPLAY_NUM="$candidate"
+      ok "Termux:X11 listo en $DISPLAY_NUM"
+      return 0
+    fi
+
+    kill -KILL "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    warn "No se pudo iniciar Termux:X11 en $candidate."
+  done
+
+  tail -n 60 "$X11_LOG" >&2 2>/dev/null || true
+  die "No se encontró un display X11 libre entre :1 y :9."
 }
 
 start_desktop(){
@@ -386,33 +485,24 @@ start_desktop(){
   installed || die "La instalación no está completa. Ejecuta: $0 install"
   load_config
   stop_debian_session
-  stop_x11_server
+  stop_x11_servers
   pulseaudio --kill 2>/dev/null || true
 
   log "Iniciando PulseAudio"
   unset PULSE_SERVER
   pulseaudio --start --exit-idle-time=-1
   sleep 1
-  pactl load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymous=1 >/dev/null 2>&1 || true
+  pactl load-module module-native-protocol-tcp \
+    auth-ip-acl=127.0.0.1 \
+    auth-anonymous=1 \
+    >/dev/null 2>&1 || true
 
-  log "Iniciando Termux:X11 en $DISPLAY_NUM"
-  export XDG_RUNTIME_DIR="$TMPDIR"
-  mkdir -p "$TMPDIR/.X11-unix"
-  : > "$X11_LOG"
-  termux-x11 "$DISPLAY_NUM" >"$X11_LOG" 2>&1 &
-  local pid=$! socket="$TMPDIR/.X11-unix/X${DISPLAY_ID}" ready=0
-  printf '%s\n' "$pid" > "$X11_PID_FILE"
-  for _ in $(seq 1 60); do
-    [[ -e "$socket" ]] && { ready=1; break; }
-    kill -0 "$pid" 2>/dev/null || break
-    sleep 0.2
-  done
-  if [[ "$ready" != 1 ]]; then
-    tail -n 50 "$X11_LOG" >&2 || true
-    die "Termux:X11 no creó el socket $socket"
-  fi
+  start_x11_server
 
-  am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || warn "Abre Termux:X11 manualmente; el servidor ya está activo."
+  am start --user 0 \
+    -n com.termux.x11/com.termux.x11.MainActivity \
+    >/dev/null 2>&1 ||
+    warn "Abre Termux:X11 manualmente; el servidor ya está activo."
 
   cat > "$TMPDIR/mobile-debian-start.sh" <<'START'
 #!/usr/bin/env bash
@@ -423,19 +513,27 @@ export XDG_RUNTIME_DIR="/tmp/runtime-$2"
 unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
-rm -rf ~/.cache/sessions/* 2>/dev/null || true
-rm -f ~/.Xauthority 2>/dev/null || true
-if [[ "$3" == kgsl ]]; then export MESA_LOADER_DRIVER_OVERRIDE=kgsl TU_DEBUG=noconform; fi
+rm -rf "$HOME/.cache/sessions/"* 2>/dev/null || true
+rm -f "$HOME/.Xauthority" 2>/dev/null || true
+if [[ "$3" == kgsl ]]; then
+  export MESA_LOADER_DRIVER_OVERRIDE=kgsl
+  export TU_DEBUG=noconform
+fi
 socket="/tmp/.X11-unix/X${DISPLAY#:}"
-[[ -e "$socket" ]] || { echo "Socket X11 no visible en Debian: $socket" >&2; exit 1; }
+[[ -e "$socket" ]] || {
+  echo "[ERROR] Socket X11 no visible dentro de Debian: $socket" >&2
+  exit 1
+}
 printf '[Debian] DISPLAY=%s | GPU=%s\n' "$DISPLAY" "$3"
 exec dbus-launch --exit-with-session bash -c '"$HOME/.local/bin/mobile-xfce-fixups" >/dev/null 2>&1 & exec xfce4-session'
 START
   chmod 0755 "$TMPDIR/mobile-debian-start.sh"
 
-  log "Iniciando XFCE (GPU=${GPU_MODE:-software}, DISPLAY=$DISPLAY_NUM)"
-  proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- \
-    /bin/bash /tmp/mobile-debian-start.sh "$DISPLAY_NUM" "$LINUX_USER" "${GPU_MODE:-software}" \
+  log "Iniciando XFCE (GPU=$GPU_MODE, DISPLAY=$DISPLAY_NUM)"
+  proot-distro login "$DISTRO" \
+    --shared-tmp \
+    --user "$LINUX_USER" \
+    -- /bin/bash /tmp/mobile-debian-start.sh "$DISPLAY_NUM" "$LINUX_USER" "$GPU_MODE" \
     2>&1 | tee "$XFCE_LOG"
 }
 
@@ -443,26 +541,47 @@ stop_desktop(){
   require_termux
   load_config
   stop_debian_session
-  stop_x11_server
+  stop_x11_servers
   pulseaudio --kill 2>/dev/null || true
   am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
   ok "Sesión cerrada"
 }
 
-install_all(){ require_termux; host_packages; ensure_debian; configure_debian 0 0; }
-update_all(){ require_termux; installed || die "Primero instala el entorno."; host_packages; configure_debian 0 0; }
-update_ai(){ require_termux; installed || die "Primero instala el entorno."; configure_debian 1 0; }
-refresh_gpu(){ require_termux; installed || die "Primero instala el entorno."; configure_debian 0 1; }
+install_all(){
+  require_termux
+  host_packages
+  ensure_debian
+  configure_debian 0 0
+}
+
+update_all(){
+  require_termux
+  installed || die "Primero instala el entorno."
+  host_packages
+  configure_debian 0 0
+}
+
+update_ai(){
+  require_termux
+  installed || die "Primero instala el entorno."
+  configure_debian 1 0
+}
+
+refresh_gpu(){
+  require_termux
+  installed || die "Primero instala el entorno."
+  configure_debian 0 1
+}
 
 status(){
   require_termux
   load_config
   printf 'Mobile Debian Desktop %s\n' "$VERSION"
   printf 'Debian: %s\n' "$(distro_exists && echo disponible || echo ausente)"
-  printf 'Display: %s\n' "$DISPLAY_NUM"
-  printf 'GPU: %s\n' "${GPU_MODE:-desconocida}"
-  printf 'Termux:X11: %s\n' "$(pgrep -x termux-x11 >/dev/null 2>&1 && echo activo || echo inactivo)"
-  printf 'Socket: %s\n' "$([[ -e "$TMPDIR/.X11-unix/X${DISPLAY_ID}" ]] && echo activo || echo inactivo)"
+  printf 'Display preferido: %s\n' "$DISPLAY_NUM"
+  printf 'GPU: %s\n' "$GPU_MODE"
+  printf 'Servidores X11 detectados:\n'
+  x11_pids | sed 's/^/  PID /' || true
 }
 
 doctor(){
@@ -470,15 +589,27 @@ doctor(){
   installed || die "La instalación no está completa."
   load_config
   status
-  proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- bash -lc '
-    for cmd in xfce4-session chromium-mobile code-mobile libreoffice vlc claude codex glxinfo vulkaninfo; do
-      command -v "$cmd" >/dev/null 2>&1 && printf "OK   %-18s %s\n" "$cmd" "$(command -v "$cmd")" || printf "MISS %s\n" "$cmd"
-    done
-  '
+  proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- \
+    /bin/bash -lc '
+      for command_name in xfce4-session chromium-mobile code-mobile libreoffice vlc claude codex glxinfo vulkaninfo; do
+        if command -v "$command_name" >/dev/null 2>&1; then
+          printf "OK   %s -> %s\n" "$command_name" "$(command -v "$command_name")"
+        else
+          printf "MISS %s\n" "$command_name"
+        fi
+      done
+    '
 }
 
 case "${1:-auto}" in
-  auto) if installed; then start_desktop; else install_all; start_desktop; fi ;;
+  auto)
+    if installed; then
+      start_desktop
+    else
+      install_all
+      start_desktop
+    fi
+    ;;
   install) install_all ;;
   start) start_desktop ;;
   stop) stop_desktop ;;
@@ -486,8 +617,10 @@ case "${1:-auto}" in
   update) update_all ;;
   update-ai) update_ai ;;
   refresh-gpu) refresh_gpu ;;
-  doctor) doctor ;;
   status) status ;;
-  -h|--help|help) usage ;;
-  *) usage; die "Comando desconocido: $1" ;;
+  doctor) doctor ;;
+  *)
+    echo "Uso: $0 [install|start|stop|restart|update|update-ai|refresh-gpu|status|doctor]"
+    exit 2
+    ;;
 esac
