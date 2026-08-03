@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.3.0"
+VERSION="0.3.1"
 DISTRO="debian"
 LINUX_USER="${LINUX_USER:-felipe}"
 DISPLAY_NUM="${DISPLAY_NUM:-:1}"
@@ -324,7 +324,7 @@ configure_debian(){
     bash /tmp/mobile-debian-setup.sh
   gpu="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
   cat > "$CONFIG_FILE" <<EOF
-VERSION=$VERSION
+CONFIG_VERSION=$VERSION
 DISTRO=$DISTRO
 LINUX_USER=$LINUX_USER
 DISPLAY_NUM=$DISPLAY_NUM
@@ -338,8 +338,14 @@ load_config(){
   if [[ -f "$CONFIG_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$CONFIG_FILE"
-    DISPLAY_ID="${DISPLAY_NUM#:}"
   fi
+  DISPLAY_ID="${DISPLAY_NUM#:}"
+
+  # Recover installations made by versions that did not create CONFIG_FILE.
+  if [[ -z "${GPU_MODE:-}" ]] && distro_exists; then
+    GPU_MODE="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
+  fi
+  GPU_MODE="${GPU_MODE:-software}"
 }
 
 stop_debian_session(){
