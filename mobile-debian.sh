@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.2.3"
+VERSION="0.2.4"
 DISTRO="debian"
 LINUX_USER="${LINUX_USER:-felipe}"
 DISPLAY_NUM="${DISPLAY_NUM:-:1}"
@@ -23,14 +23,10 @@ installed(){
   distro_exists || return 1
   [[ -f "$STATE" ]] && return 0
 
-  # Recuperación para instalaciones que terminaron correctamente pero fueron
-  # creadas con una versión nueva de proot-distro y no pasaron la comprobación
-  # antigua basada en una ruta interna fija.
   if proot-distro login "$DISTRO" -- test -x /usr/bin/xfce4-session >/dev/null 2>&1; then
     date -Iseconds > "$STATE"
     return 0
   fi
-
   return 1
 }
 
@@ -63,7 +59,7 @@ apt-get dist-upgrade -y
 printf '[Debian] Instalando XFCE y aplicaciones\n'
 apt-get install -y --no-install-recommends \
   sudo locales tzdata ca-certificates curl wget gnupg jq file xz-utils \
-  dbus-x11 xauth x11-xserver-utils xdg-utils \
+  dbus-x11 xauth x11-xserver-utils xdg-utils desktop-base \
   xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd \
   thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs pavucontrol \
   mesa-utils vulkan-tools chromium \
@@ -128,12 +124,13 @@ fi
 echo "$GPU_MODE" > /etc/mobile-debian-gpu
 printf '[Debian] Modo gráfico configurado: %s\n' "$GPU_MODE"
 
-printf '[Debian] Configurando Chromium, VS Code y accesos del escritorio\n'
+printf '[Debian] Configurando aplicaciones y escritorio\n'
 install -d -m755 \
   /usr/local/bin \
   "$HOME_DIR/.local/share/applications" \
   "$HOME_DIR/Desktop" \
-  "$HOME_DIR/.config/autostart"
+  "$HOME_DIR/.config/autostart" \
+  "$HOME_DIR/.config/mobile-debian"
 
 cat > /usr/local/bin/chromium-mobile <<'CHROME'
 #!/bin/bash
@@ -174,7 +171,53 @@ Terminal=false
 Categories=Office;
 DESK
 
-cp "$HOME_DIR/.local/share/applications/"*.desktop "$HOME_DIR/Desktop/"
+cp "$HOME_DIR/.local/share/applications/chromium-mobile.desktop" "$HOME_DIR/Desktop/"
+cp "$HOME_DIR/.local/share/applications/word-online.desktop" "$HOME_DIR/Desktop/"
+for desktop_file in \
+  /usr/share/applications/vlc.desktop \
+  /usr/share/applications/libreoffice-writer.desktop \
+  /usr/share/applications/code.desktop; do
+  [[ -f "$desktop_file" ]] && cp "$desktop_file" "$HOME_DIR/Desktop/"
+done
+chmod +x "$HOME_DIR/Desktop/"*.desktop 2>/dev/null || true
+
+WALLPAPER="$(find /usr/share/desktop-base -type f \
+  \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.svg' \) \
+  -path '*/wallpaper/*' 2>/dev/null | sort | head -n 1 || true)"
+printf '%s\n' "$WALLPAPER" > /etc/mobile-debian-wallpaper
+
+cat > /usr/local/bin/mobile-debian-session-init <<'INIT'
+#!/bin/bash
+set -u
+MARKER="$HOME/.config/mobile-debian/visuals-initialized"
+[[ -f "$MARKER" ]] && exit 0
+sleep 3
+xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create >/dev/null 2>&1 || true
+WALLPAPER="$(cat /etc/mobile-debian-wallpaper 2>/dev/null || true)"
+if [[ -n "$WALLPAPER" && -f "$WALLPAPER" ]]; then
+  mapfile -t PROPERTIES < <(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$' || true)
+  if [[ ${#PROPERTIES[@]} -eq 0 ]]; then
+    PROPERTIES=(/backdrop/screen0/monitor0/workspace0/last-image)
+  fi
+  for property in "${PROPERTIES[@]}"; do
+    xfconf-query -c xfce4-desktop -p "$property" -t string -s "$WALLPAPER" --create >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-desktop -p "${property%/last-image}/image-style" -t int -s 5 --create >/dev/null 2>&1 || true
+  done
+  xfdesktop --reload >/dev/null 2>&1 || true
+fi
+mkdir -p "$(dirname "$MARKER")"
+touch "$MARKER"
+INIT
+chmod +x /usr/local/bin/mobile-debian-session-init
+
+cat > "$HOME_DIR/.config/autostart/mobile-debian-session-init.desktop" <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=Mobile Debian session setup
+Exec=/usr/local/bin/mobile-debian-session-init
+Terminal=false
+X-GNOME-Autostart-enabled=true
+DESK
 
 for f in light-locker.desktop xiccd.desktop polkit-mate-authentication-agent-1.desktop xfce4-power-manager.desktop; do
   printf '[Desktop Entry]\nType=Application\nHidden=true\nX-GNOME-Autostart-enabled=false\n' > "$HOME_DIR/.config/autostart/$f"
@@ -209,7 +252,6 @@ cleanup_session(){
       bash -lc 'pkill -TERM -x xfce4-session 2>/dev/null || true; pkill -TERM -x xfwm4 2>/dev/null || true' \
       >/dev/null 2>&1 || true
   fi
-
   pkill -TERM -x termux-x11 2>/dev/null || true
   pulseaudio --kill 2>/dev/null || true
   rm -f "$TMPDIR/.X${DISPLAY_ID}-lock" "$TMPDIR/.X11-unix/X${DISPLAY_ID}"
@@ -224,7 +266,6 @@ stop(){
 start(){
   termux
   installed || die "No encuentro una instalación completa de Debian/XFCE. Ejecuta: $0 install"
-
   cleanup_session
 
   pulseaudio --start --exit-idle-time=-1
@@ -235,38 +276,69 @@ start(){
     >/dev/null 2>&1 || true
 
   export XDG_RUNTIME_DIR="$TMPDIR"
+  mkdir -p "$TMPDIR/.X11-unix"
   termux-x11 "$DISPLAY_NUM" >"$LOGDIR/termux-x11.log" 2>&1 &
-  sleep 3
+  local x11_pid=$!
+
+  local socket="$TMPDIR/.X11-unix/X${DISPLAY_ID}"
+  local ready=0
+  for _ in $(seq 1 30); do
+    if [[ -S "$socket" || -e "$socket" ]]; then
+      ready=1
+      break
+    fi
+    if ! kill -0 "$x11_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.2
+  done
+
+  if [[ "$ready" -ne 1 ]]; then
+    tail -n 40 "$LOGDIR/termux-x11.log" >&2 2>/dev/null || true
+    die "Termux:X11 no creó el socket $socket. Revisa $LOGDIR/termux-x11.log"
+  fi
 
   am start --user 0 \
     -n com.termux.x11/com.termux.x11.MainActivity \
-    >/dev/null 2>&1 || log "Abre Termux:X11 manualmente; el servidor seguirá iniciándose."
+    >/dev/null 2>&1 || log "Abre Termux:X11 manualmente; el servidor ya está activo."
 
-  GPU="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
-  EXTRA=""
-  if [[ "$GPU" == kgsl ]]; then
-    EXTRA='export MESA_LOADER_DRIVER_OVERRIDE=kgsl; export TU_DEBUG=noconform;'
-  fi
+  local gpu
+  gpu="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
+  log "Iniciando XFCE (GPU=$gpu, DISPLAY=$DISPLAY_NUM)"
 
-  log "Iniciando XFCE (GPU=$GPU)"
   proot-distro login "$DISTRO" \
     --shared-tmp \
     --user "$LINUX_USER" \
-    -- env \
-      DISPLAY="$DISPLAY_NUM" \
-      PULSE_SERVER=127.0.0.1 \
-      XDG_RUNTIME_DIR="/tmp/runtime-$LINUX_USER" \
-      GPU="$EXTRA" \
-    bash -lc '
+    -- /bin/bash -lc '
+      DISPLAY_VALUE="$1"
+      USER_VALUE="$2"
+      GPU_MODE="$3"
+
+      export DISPLAY="$DISPLAY_VALUE"
+      export PULSE_SERVER=127.0.0.1
+      export XDG_RUNTIME_DIR="/tmp/runtime-$USER_VALUE"
+      unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
+
       mkdir -p "$XDG_RUNTIME_DIR"
       chmod 700 "$XDG_RUNTIME_DIR"
       rm -rf ~/.cache/sessions/* 2>/dev/null || true
-      eval "$GPU"
-      exec dbus-launch --exit-with-session sh -c "
-        xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create >/dev/null 2>&1 || true
-        exec xfce4-session
-      "
-    '
+      rm -f ~/.Xauthority 2>/dev/null || true
+
+      if [[ "$GPU_MODE" == kgsl ]]; then
+        export MESA_LOADER_DRIVER_OVERRIDE=kgsl
+        export TU_DEBUG=noconform
+      fi
+
+      SOCKET="/tmp/.X11-unix/X${DISPLAY_VALUE#:}"
+      [[ -e "$SOCKET" ]] || {
+        echo "[ERROR] Socket X11 no visible dentro de Debian: $SOCKET" >&2
+        ls -la /tmp/.X11-unix >&2 2>/dev/null || true
+        exit 1
+      }
+
+      echo "[Debian] DISPLAY=$DISPLAY | GPU=$GPU_MODE"
+      exec dbus-launch --exit-with-session xfce4-session
+    ' mobile-debian "$DISPLAY_NUM" "$LINUX_USER" "$gpu"
 }
 
 install(){
@@ -279,8 +351,7 @@ doctor(){
   termux
   distro_exists || die "Debian no está instalado."
   proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- \
-    env DISPLAY="$DISPLAY_NUM" \
-    bash -lc '
+    /bin/bash -lc '
       echo "GPU mode: $(cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
       for c in xfce4-session chromium-mobile code-mobile libreoffice vlc claude codex glxinfo vulkaninfo; do
         if command -v "$c" >/dev/null 2>&1; then
@@ -289,18 +360,12 @@ doctor(){
           printf "MISS %s\n" "$c"
         fi
       done
-      glxinfo -B 2>/dev/null | grep -E "OpenGL vendor|OpenGL renderer|OpenGL version" || true
     '
 }
 
 case "${1:-auto}" in
   auto)
-    if installed; then
-      start
-    else
-      install
-      start
-    fi
+    if installed; then start; else install; start; fi
     ;;
   install) install ;;
   start) start ;;
