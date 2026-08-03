@@ -1,15 +1,32 @@
 # Mobile Debian Desktop
 
-Instalador y lanzador idempotente para ejecutar un escritorio Debian completo en Android mediante **Termux + PRoot-Distro + Termux:X11**.
+Instalador idempotente para ejecutar un escritorio Debian completo en Android mediante **Termux + PRoot-Distro + Termux:X11**.
 
-Está optimizado para el **Samsung Galaxy S25 Ultra**, con Snapdragon 8 Elite y GPU Adreno, pero también funciona en otros dispositivos Android ARM64. La aceleración directa se activa únicamente cuando el dispositivo expone `/dev/kgsl-3d0` y existe un paquete Mesa compatible.
+Está optimizado para el Samsung Galaxy S25 Ultra con Snapdragon 8 Elite y Adreno 830, pero puede usarse en otros dispositivos Android ARM64. La aceleración directa se activa únicamente cuando el dispositivo expone `/dev/kgsl-3d0` y Debian es compatible con el paquete Mesa seleccionado.
+
+## Instalación en un comando
+
+Primero instala manualmente las aplicaciones Android **Termux** y **Termux:X11**. Después pega este comando completo en Termux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main/mobile-debian.sh -o "$HOME/mobile-debian.sh" && chmod +x "$HOME/mobile-debian.sh" && "$HOME/mobile-debian.sh"
+```
+
+La primera ejecución instala el entorno completo. En las siguientes ejecuciones, el mismo comando inicia Termux:X11 y XFCE sin reinstalar Debian.
+
+Para iniciar posteriormente:
+
+```bash
+$HOME/mobile-debian.sh start
+```
 
 ## Arquitectura
 
 ```text
 Android
 ├── Termux
-│   ├── Termux:X11
+│   ├── x11-repo
+│   ├── termux-x11-nightly
 │   ├── PulseAudio
 │   └── proot-distro
 └── Debian
@@ -18,137 +35,146 @@ Android
     ├── Chromium
     ├── Visual Studio Code
     ├── Claude Code y Codex CLI
-    ├── LibreOffice Writer / Word Online
+    ├── LibreOffice Writer y Word Online
     └── VLC, mpv y FFmpeg
 ```
 
-Termux se mantiene como anfitrión ligero. El escritorio y las aplicaciones se instalan dentro de Debian.
+El APK Android de Termux:X11 y el paquete `termux-x11-nightly` son componentes distintos. El APK se instala manualmente; el script instala el componente de Termux.
 
 ## Qué instala
 
-### En Termux
+En Termux:
 
 - `x11-repo`
 - `termux-x11-nightly`
 - PulseAudio
 - `proot-distro`
-- Herramientas auxiliares como `curl`, `wget`, `git`, `jq`, `tar` y `procps`
+- `curl`, `wget`, `git`, `jq`, `tar`, `gzip`, `coreutils` y `procps`
 
-### En Debian
+En Debian:
 
-- XFCE, Thunar, terminal, Mousepad, gestor de comprimidos y controles de audio
-- Chromium configurado para Termux:X11 y PRoot
-- Visual Studio Code oficial para ARM64
+- XFCE, Thunar, terminal, Mousepad y utilidades del escritorio
+- Chromium con wrapper para X11, PRoot y aceleración gráfica
+- Visual Studio Code oficial ARM64
 - Claude Code y OpenAI Codex CLI
-- LibreOffice Writer, diccionario en español y acceso a Word Online
-- Git, Python, Node.js, npm y herramientas de compilación
+- LibreOffice Writer y acceso a Word Online
 - VLC, mpv y FFmpeg
-- Mesa Utils y Vulkan Tools
-- Mesa Freedreno/Turnip mediante KGSL cuando el dispositivo es compatible
+- Git, Python, Node.js, npm y herramientas de compilación
+- Mesa Utils, Vulkan Tools y Mesa KGSL cuando el equipo es compatible
+- Fondo de Debian y accesos de Chromium, VLC, LibreOffice y VS Code
 
 ## Exclusiones intencionales
 
-El instalador **no incluye**:
+El instalador no incluye:
 
 - Java, JDK ni Maven
-- Servidores o clientes VNC
-- Metasploit
+- VNC ni TigerVNC
 - Wine/Hangover
+- Metasploit u otras herramientas ofensivas
 
-Termux:X11 muestra el escritorio directamente, por lo que VNC no es necesario. Java puede instalarse después como una decisión específica de cada dispositivo o proyecto.
-
-## Requisitos manuales
-
-Antes de ejecutar el script instala:
-
-1. Termux actualizado desde F-Droid o GitHub.
-2. La aplicación Android Termux:X11 oficial.
-
-Android exige confirmar manualmente la instalación del APK de Termux:X11. El script comprueba que la aplicación esté presente antes de continuar.
-
-## Instalación en un comando
-
-Con el repositorio público, pega este comando completo en una instalación limpia de Termux:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main/mobile-debian.sh -o "$HOME/mobile-debian.sh" && chmod +x "$HOME/mobile-debian.sh" && "$HOME/mobile-debian.sh"
-```
-
-El comando descarga el instalador, lo guarda en el directorio personal de Termux, le asigna permisos de ejecución e inicia la instalación completa. En las siguientes ejecuciones puedes iniciar el escritorio con:
-
-```bash
-$HOME/mobile-debian.sh
-```
-
-> El repositorio debe ser público para que `raw.githubusercontent.com` permita descargar el archivo sin un token de GitHub.
-
-## Primer uso manual
-
-También puedes descargar o copiar `mobile-debian.sh` al directorio personal de Termux y ejecutarlo así:
-
-```bash
-chmod +x mobile-debian.sh
-./mobile-debian.sh
-```
-
-En la primera ejecución el script:
-
-1. Actualiza Termux.
-2. Instala las dependencias del anfitrión.
-3. Instala Debian.
-4. Actualiza Debian.
-5. Instala XFCE, GPU y aplicaciones.
-6. Inicia Termux:X11 y XFCE.
-
-En ejecuciones posteriores, el mismo comando detecta la instalación existente y **solo inicia el escritorio**.
+Termux:X11 muestra el escritorio directamente, por lo que VNC no es necesario.
 
 ## Comandos
 
 ```bash
-./mobile-debian.sh install
-./mobile-debian.sh start
-./mobile-debian.sh stop
-./mobile-debian.sh restart
-./mobile-debian.sh status
-./mobile-debian.sh doctor
-./mobile-debian.sh update
+$HOME/mobile-debian.sh install
+$HOME/mobile-debian.sh start
+$HOME/mobile-debian.sh stop
+$HOME/mobile-debian.sh restart
+$HOME/mobile-debian.sh update
+$HOME/mobile-debian.sh update-ai
+$HOME/mobile-debian.sh refresh-gpu
+$HOME/mobile-debian.sh status
+$HOME/mobile-debian.sh doctor
 ```
 
-### Comportamiento de actualización
+### Comportamiento
 
-| Comando | Termux | Debian | Inicia XFCE |
-|---|---:|---:|---:|
-| `./mobile-debian.sh` en instalación nueva | Actualiza | Actualiza | Sí |
-| `./mobile-debian.sh` ya instalado | No | No | Sí |
-| `./mobile-debian.sh install` | Actualiza | Actualiza | No |
-| `./mobile-debian.sh update` | Actualiza | Actualiza | No |
-| `./mobile-debian.sh start` | No | No | Sí |
+| Comando | Qué hace |
+|---|---|
+| Sin argumentos | Instala si hace falta; de lo contrario inicia XFCE |
+| `install` | Instala o repara el entorno completo |
+| `start` | Inicia PulseAudio, Termux:X11 y XFCE |
+| `stop` | Cierra XFCE, el servidor X11 y PulseAudio |
+| `restart` | Reinicia la sesión gráfica |
+| `update` | Actualiza Termux y Debian sin reinstalar Claude Code, Codex ni Mesa |
+| `update-ai` | Actualiza explícitamente Claude Code y Codex |
+| `refresh-gpu` | Descarga e instala explícitamente el paquete Mesa compatible |
+| `doctor` | Comprueba aplicaciones y estado básico |
 
-En Termux se ejecutan:
+`update` ejecuta `pkg update`, `pkg upgrade`, `apt-get update` y `apt-get dist-upgrade`. Los instaladores de Claude Code y Codex solo se ejecutan si la herramienta no existe. Para forzar su actualización se usa `update-ai`.
 
-```bash
-pkg update -y
-pkg upgrade -y
+Mesa no se vuelve a descargar cuando `/etc/mobile-debian-gpu` ya indica `kgsl`. Para forzar una actualización del controlador se usa `refresh-gpu`.
+
+## Gestión segura de Termux:X11
+
+El script guarda el PID del servidor que inicia. Antes de reiniciar:
+
+1. Detiene XFCE.
+2. Envía `TERM` al proceso exacto `termux-x11`.
+3. Espera a que termine.
+4. Usa `KILL` solamente si sigue vivo.
+5. Elimina el socket y el lock después de confirmar que el servidor murió.
+6. Inicia un servidor limpio y espera a que aparezca el socket `X1`.
+
+Esto evita el error:
+
+```text
+server already running
+Cannot establish any listening sockets
 ```
 
-Después de habilitar `x11-repo`, se refrescan nuevamente los índices antes de instalar Termux:X11.
+La actividad Android de Termux:X11 solo se cierra con el comando `stop`. Un inicio normal conserva la aplicación abierta.
 
-Dentro de Debian se ejecutan:
+## Aceleración gráfica
+
+Cuando se detectan Debian Trixie ARM64 y `/dev/kgsl-3d0`, la sesión exporta:
 
 ```bash
-apt-get update
-apt-get dist-upgrade -y
+MESA_LOADER_DRIVER_OVERRIDE=kgsl
+TU_DEBUG=noconform
+```
+
+Estas variables se aplican a toda la sesión XFCE, no solamente a Chromium.
+
+Comprueba las herramientas instaladas con:
+
+```bash
+$HOME/mobile-debian.sh doctor
+```
+
+Dentro de Chromium abre:
+
+```text
+chrome://gpu
+```
+
+para revisar WebGL, composición y rasterización.
+
+## Claude Code y Codex
+
+Las dos herramientas se instalan como el usuario normal de Debian en `~/.local/bin`. El script no guarda contraseñas, claves de API ni sesiones.
+
+Dentro de XFCE Terminal:
+
+```bash
+claude
+codex
+```
+
+Para omitirlas durante una instalación nueva:
+
+```bash
+INSTALL_AI_CLI=0 $HOME/mobile-debian.sh install
+```
+
+Para actualizarlas explícitamente:
+
+```bash
+$HOME/mobile-debian.sh update-ai
 ```
 
 ## Opciones
-
-Los grupos opcionales pueden desactivarse en la primera instalación o durante una reparación:
-
-```bash
-INSTALL_MEDIA=0 INSTALL_OFFICE=0 INSTALL_AI_CLI=0 ./mobile-debian.sh install
-```
-
-Variables disponibles:
 
 ```text
 LINUX_USER
@@ -165,102 +191,20 @@ INSTALL_GPU
 Ejemplo:
 
 ```bash
-LINUX_USER=pipe DISPLAY_NUM=:1 ./mobile-debian.sh install
+LINUX_USER=pipe DISPLAY_NUM=:1 $HOME/mobile-debian.sh install
 ```
 
-## Aceleración gráfica
-
-Cuando se detectan Debian 13 ARM64 y `/dev/kgsl-3d0`, el instalador descarga una versión compatible de Mesa para contenedores Android y configura la sesión completa con KGSL.
-
-La aceleración no se limita a Chromium: las aplicaciones iniciadas dentro de XFCE heredan la configuración gráfica de la sesión.
-
-Comprueba el resultado con:
-
-```bash
-./mobile-debian.sh doctor
-```
-
-El renderer OpenGL debería mencionar Adreno, Freedreno o FD830. Si aparece `llvmpipe`, la sesión está usando renderizado por software.
-
-## Chromium
-
-El acceso **Chromium (GPU)** utiliza un wrapper preparado para:
-
-- X11 mediante Ozone
-- ANGLE/OpenGL
-- Rasterización GPU
-- Las limitaciones de memoria compartida y sandbox de PRoot
-
-Dentro de Chromium abre:
+## Registros
 
 ```text
-chrome://gpu
+~/.local/state/mobile-debian/termux-x11.log
+~/.local/state/mobile-debian/xfce.log
 ```
-
-para revisar el estado de WebGL, composición y rasterización.
-
-## Claude Code y Codex
-
-Los dos asistentes se instalan como el usuario normal de Debian en `~/.local/bin`. El script no almacena claves, tokens ni contraseñas.
-
-Después de instalar:
-
-```bash
-claude
-codex
-```
-
-Cada herramienta inicia su propio proceso de autenticación.
-
-Para omitirlas:
-
-```bash
-INSTALL_AI_CLI=0 ./mobile-debian.sh install
-```
-
-Para instalarlas o repararlas posteriormente:
-
-```bash
-INSTALL_AI_CLI=1 ./mobile-debian.sh update
-```
-
-## VLC y oficina
-
-VLC se instala por defecto junto con mpv y FFmpeg cuando `INSTALL_MEDIA=1`.
-
-Para documentos se incluyen:
-
-- LibreOffice Writer para uso sin conexión
-- Microsoft Word Online mediante Chromium
-
-No se instala Word de escritorio ni Wine.
-
-## Diagnóstico
-
-```bash
-./mobile-debian.sh status
-./mobile-debian.sh doctor
-```
-
-Los registros se guardan en:
-
-```text
-~/.local/state/mobile-debian/
-```
-
-## Seguridad
-
-Chromium y VS Code utilizan `--no-sandbox` porque el sandbox basado en namespaces normalmente no puede inicializarse dentro de PRoot. Para banca, contraseñas u operaciones sensibles, utiliza el navegador Android.
-
-Claude Code y Codex pueden leer, modificar y ejecutar archivos según los permisos concedidos. Úsalos dentro de repositorios Git y revisa las operaciones antes de aprobarlas.
-
-El script no usa `termux-x11 -ac`, no fuerza variables GPU globales en Termux y no instala herramientas ofensivas.
 
 ## Fuentes técnicas
 
 - Termux:X11: https://github.com/termux/termux-x11
 - PRoot-Distro: https://github.com/termux/proot-distro
-- Termux Desktops: https://github.com/LinuxDroidMaster/Termux-Desktops
 - Mesa para contenedores Android: https://github.com/lfdevs/mesa-for-android-container
 - Visual Studio Code: https://code.visualstudio.com/docs/setup/linux
 - Claude Code: https://github.com/anthropics/claude-code
