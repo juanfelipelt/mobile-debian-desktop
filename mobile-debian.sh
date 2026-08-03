@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.2.0"
+VERSION="0.2.1"
 DISTRO=debian
 LINUX_USER="${LINUX_USER:-felipe}"
 DISPLAY_NUM="${DISPLAY_NUM:-:1}"
@@ -17,7 +17,25 @@ termux(){ [[ "${PREFIX:-}" == /data/data/com.termux/files/usr ]] || die "Ejecuta
 installed(){ [[ -f "$STATE" && -d "$ROOTFS" ]]; }
 
 check_x11(){
-  pm list packages 2>/dev/null | grep -q '^package:com.termux.x11$' || die "Instala primero el APK oficial Termux:X11."
+  local component="com.termux.x11/com.termux.x11.MainActivity"
+  local output=""
+
+  # Android 11+ puede ocultar aplicaciones instaladas en `pm list packages`
+  # por las reglas de visibilidad. Probar una actividad explícita es más fiable.
+  output="$(am start --user 0 -W -n "$component" 2>&1 || true)"
+
+  if ! grep -qiE '(^|[[:space:]])Error:|does not exist|unable to resolve|not found' <<<"$output"; then
+    am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  # Fallback para versiones de Android donde Package Manager sí permite verlo.
+  if /system/bin/pm path com.termux.x11 2>/dev/null | grep -q '^package:'; then
+    return 0
+  fi
+
+  printf '%s\n' "$output" > "$LOGDIR/x11-detection.log"
+  die "No pude abrir Termux:X11. Verifica que el APK oficial esté instalado y revisa $LOGDIR/x11-detection.log"
 }
 
 host_packages(){
