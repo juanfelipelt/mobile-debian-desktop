@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.2.1"
+VERSION="0.2.2"
 DISTRO=debian
 LINUX_USER="${LINUX_USER:-felipe}"
 DISPLAY_NUM="${DISPLAY_NUM:-:1}"
@@ -15,28 +15,6 @@ log(){ printf '\033[1;36m[Mobile Debian]\033[0m %s\n' "$*"; }
 die(){ printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 termux(){ [[ "${PREFIX:-}" == /data/data/com.termux/files/usr ]] || die "Ejecuta esto en Termux."; }
 installed(){ [[ -f "$STATE" && -d "$ROOTFS" ]]; }
-
-check_x11(){
-  local component="com.termux.x11/com.termux.x11.MainActivity"
-  local output=""
-
-  # Android 11+ puede ocultar aplicaciones instaladas en `pm list packages`
-  # por las reglas de visibilidad. Probar una actividad explícita es más fiable.
-  output="$(am start --user 0 -W -n "$component" 2>&1 || true)"
-
-  if ! grep -qiE '(^|[[:space:]])Error:|does not exist|unable to resolve|not found' <<<"$output"; then
-    am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
-    return 0
-  fi
-
-  # Fallback para versiones de Android donde Package Manager sí permite verlo.
-  if /system/bin/pm path com.termux.x11 2>/dev/null | grep -q '^package:'; then
-    return 0
-  fi
-
-  printf '%s\n' "$output" > "$LOGDIR/x11-detection.log"
-  die "No pude abrir Termux:X11. Verifica que el APK oficial esté instalado y revisa $LOGDIR/x11-detection.log"
-}
 
 host_packages(){
   log "Actualizando Termux"
@@ -154,34 +132,44 @@ DEBIAN
   date -Iseconds > "$STATE"
 }
 
-stop(){
-  termux
+cleanup_session(){
   if [[ -d "$ROOTFS" ]]; then
     proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- bash -lc 'pkill -TERM -x xfce4-session 2>/dev/null||true; pkill -TERM -x xfwm4 2>/dev/null||true' >/dev/null 2>&1 || true
   fi
   pkill -TERM -x termux-x11 2>/dev/null || true
-  am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
   pulseaudio --kill 2>/dev/null || true
   rm -f "$TMPDIR/.X${DISPLAY_ID}-lock" "$TMPDIR/.X11-unix/X${DISPLAY_ID}"
 }
 
+stop(){
+  termux
+  cleanup_session
+  am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
+}
+
 start(){
-  termux; check_x11; installed || die "Primero ejecuta la instalación."
-  stop >/dev/null 2>&1 || true
+  termux
+  installed || die "Primero ejecuta la instalación."
+  cleanup_session
   pulseaudio --start --exit-idle-time=-1
   sleep 1
   pactl load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymous=1 >/dev/null 2>&1 || true
   export XDG_RUNTIME_DIR="$TMPDIR"
   termux-x11 "$DISPLAY_NUM" >"$LOGDIR/termux-x11.log" 2>&1 &
   sleep 3
-  am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1
+
+  # El APK se instala manualmente. Intentar mostrar su actividad es útil,
+  # pero nunca debe bloquear la sesión si Android no permite lanzarla.
+  am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || \
+    log "Termux:X11 no pudo abrirse automáticamente; abre la app manualmente."
+
   GPU="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
   EXTRA=''; [[ "$GPU" == kgsl ]] && EXTRA='export MESA_LOADER_DRIVER_OVERRIDE=kgsl; export TU_DEBUG=noconform;'
   log "Iniciando XFCE (GPU=$GPU)"
   proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- env DISPLAY="$DISPLAY_NUM" PULSE_SERVER=127.0.0.1 XDG_RUNTIME_DIR="/tmp/runtime-$LINUX_USER" GPU="$EXTRA" bash -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; rm -rf ~/.cache/sessions/*; eval "$GPU"; exec dbus-launch --exit-with-session xfce4-session'
 }
 
-install(){ termux; check_x11; host_packages; install_debian; }
+install(){ termux; host_packages; install_debian; }
 doctor(){
   termux
   proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- env DISPLAY="$DISPLAY_NUM" bash -lc 'for c in xfce4-session chromium-mobile code-mobile libreoffice vlc claude codex glxinfo vulkaninfo; do command -v "$c" || true; done; glxinfo -B 2>/dev/null|grep -E "OpenGL vendor|OpenGL renderer|OpenGL version"||true'
