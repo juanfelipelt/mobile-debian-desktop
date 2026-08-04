@@ -177,6 +177,7 @@ TIMEZONE
 X11_LEGACY_DRAWING
 X11_FORCE_BGRA
 X11_SOFTWARE_GL
+LOW_MEMORY
 INSTALL_DEV_STACK
 INSTALL_OFFICE
 INSTALL_MEDIA
@@ -192,6 +193,34 @@ Las variables de entorno tienen prioridad sobre el archivo de configuración gua
 ```bash
 X11_LEGACY_DRAWING=1 $HOME/mobile-debian.sh start
 ```
+
+## Ajustes de Android
+
+Android puede matar Termux con `SIGKILL`, lo que en la terminal aparece como `[Process completed (signal 9) - press Enter]`. No es un fallo del escritorio: es la política de segundo plano del sistema. Estos ajustes hay que aplicarlos a mano en cada dispositivo.
+
+Para **Termux** y también para **Termux:X11**, porque si Android se lleva la segunda te quedas con la pantalla en negro:
+
+1. Ajustes → Aplicaciones → *la aplicación* → Batería → **Sin restricciones**.
+2. Ajustes → Batería → Límites de uso en segundo plano → añadir a **Aplicaciones que nunca entran en reposo**, y sacarlas de las listas de reposo y reposo profundo.
+3. Ajustes → Batería → **Batería adaptable** desactivada.
+4. Botón Recientes → mantener pulsado el icono → **Mantener abierta**.
+
+En **Opciones de desarrollador**, que se habilitan tocando siete veces "Número de compilación" en Información del software:
+
+1. **Desactivar restricciones de procesos secundarios**, si existe en esa versión de One UI. Es la más efectiva, porque PRoot lanza muchos procesos hijo.
+2. **Suspender ejecución para apps en caché** desactivado, que es el equivalente cuando la opción anterior no está.
+3. **Límite de procesos en segundo plano** en *Límite estándar*.
+4. **No mantener actividades** desactivado.
+
+Reinicia el dispositivo al terminar.
+
+Estos ajustes evitan que Android mate por política, no por falta real de memoria. En equipos de 8 GB, Chromium con varias pestañas junto a Visual Studio Code puede agotar la RAM de verdad, y entonces interviene el OOM killer del núcleo. Para ese caso:
+
+```bash
+LOW_MEMORY=1 $HOME/mobile-debian.sh repair
+```
+
+Eso recorta el consumo de Chromium desactivando su proceso de GPU, que sin aceleración solo falla y reintenta, y el aislamiento por sitio, que abre un proceso por dominio. A cambio se pierde la separación de seguridad entre pestañas de sitios distintos, así que está desactivado por defecto y se activa solo en los equipos que lo necesitan.
 
 ## Pantalla negra
 

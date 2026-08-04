@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.7.1"
+VERSION="0.8.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -10,7 +10,7 @@ REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/m
 CONFIG_VERSION_CURRENT=2
 CONFIG_KEYS=(
   DISPLAY_NUM LOCALE LANGUAGE_VALUE TIMEZONE
-  X11_LEGACY_DRAWING X11_FORCE_BGRA X11_SOFTWARE_GL STORAGE_SOURCE
+  X11_LEGACY_DRAWING X11_FORCE_BGRA X11_SOFTWARE_GL LOW_MEMORY STORAGE_SOURCE
 )
 ENV_OVERRIDES=()
 for config_key in "${CONFIG_KEYS[@]}"; do
@@ -30,6 +30,10 @@ TIMEZONE="${TIMEZONE:-America/Bogota}"
 X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-0}"
 X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
 X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
+# En equipos con poca RAM Android mata Termux con SIGKILL cuando Chromium abre
+# un proceso por sitio. Esto recorta procesos a costa del aislamiento entre
+# sitios, así que se activa por dispositivo, no por defecto.
+LOW_MEMORY="${LOW_MEMORY:-0}"
 
 INSTALL_DEV_STACK="${INSTALL_DEV_STACK:-1}"
 INSTALL_OFFICE="${INSTALL_OFFICE:-1}"
@@ -104,6 +108,7 @@ load_config(){
   X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-0}"
   X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
   X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
+  LOW_MEMORY="${LOW_MEMORY:-0}"
   STORAGE_SOURCE="${STORAGE_SOURCE:-}"
 }
 
@@ -207,6 +212,7 @@ INSTALL_AI_CLI="${10}"
 AI_FORCE="${11}"
 STORAGE_ENABLED="${12}"
 INSTALL_GRAPHICS="${13:-0}"
+LOW_MEMORY="${14:-0}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -331,25 +337,39 @@ install -d -m755 \
   "$USER_HOME/Downloads" "$USER_HOME/Documents" \
   "$USER_HOME/Music" "$USER_HOME/Pictures" "$USER_HOME/Videos"
 
-cat > /usr/local/bin/chromium-mobile <<'CHROME'
+cat > /usr/local/bin/chromium-mobile <<CHROME
 #!/usr/bin/env bash
 unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
-exec /usr/bin/chromium \
-  --no-sandbox \
-  --disable-dev-shm-usage \
-  --password-store=basic \
-  --ozone-platform=x11 \
-  "$@"
+LOW_MEMORY="\${LOW_MEMORY:-$LOW_MEMORY}"
+args=(
+  --no-sandbox
+  --disable-dev-shm-usage
+  --password-store=basic
+  --ozone-platform=x11
+)
+# Sin GPU el proceso gráfico falla y reintenta en bucle, y el aislamiento por
+# sitio abre un proceso por dominio: las dos cosas juntas agotan la RAM y
+# Android responde con SIGKILL sobre Termux.
+if [[ "\$LOW_MEMORY" == 1 ]]; then
+  args+=(
+    --disable-gpu
+    --disable-site-isolation-trials
+    --disable-features=IsolateOrigins,site-per-process
+    --renderer-process-limit=2
+    --process-per-site
+  )
+fi
+exec /usr/bin/chromium "\${args[@]}" "\$@"
 CHROME
 chmod 0755 /usr/local/bin/chromium-mobile
 
-cat > /usr/local/bin/code-mobile <<'CODE'
+cat > /usr/local/bin/code-mobile <<CODE
 #!/usr/bin/env bash
 unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
-exec /usr/bin/code \
-  --no-sandbox \
-  --disable-dev-shm-usage \
-  "$@"
+LOW_MEMORY="\${LOW_MEMORY:-$LOW_MEMORY}"
+args=(--no-sandbox --disable-dev-shm-usage)
+[[ "\$LOW_MEMORY" == 1 ]] && args+=(--disable-gpu)
+exec /usr/bin/code "\${args[@]}" "\$@"
 CODE
 chmod 0755 /usr/local/bin/code-mobile
 
@@ -500,7 +520,8 @@ configure_debian(){
       "$LINUX_USER" "$LOCALE" "$LANGUAGE_VALUE" "$TIMEZONE" \
       "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
-      "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS"
+      "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS" \
+      "$LOW_MEMORY"
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"
@@ -777,27 +798,35 @@ stop_desktop(){
 
 install_all(){
   require_termux
+  # Una instalación completa descarga varios GB. Sin wake-lock Android puede
+  # dormir el equipo y cortarla a la mitad.
+  acquire_wake_lock
   host_packages
   setup_android_storage
   ensure_debian
   configure_debian 0
+  release_wake_lock
 }
 
 update_all(){
   require_termux
   installed || die "Primero instala el entorno."
   load_config
+  acquire_wake_lock
   setup_android_storage
   host_packages
   configure_debian 0
+  release_wake_lock
 }
 
 repair(){
   require_termux
   installed || die "Primero instala el entorno."
   load_config
+  acquire_wake_lock
   setup_android_storage
   configure_debian 0
+  release_wake_lock
 }
 
 update_ai(){
