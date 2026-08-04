@@ -1,8 +1,8 @@
 # Mobile Debian Desktop
 
-Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**, configurado para el Samsung Galaxy S25 Ultra y otros equipos ARM64.
+Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**.
 
-La versión 0.6 vuelve a una arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian. No fuerza controladores KGSL, Zink, ANGLE ni rasterización GPU experimental.
+La versión 0.7 recupera el flujo de arranque del commit estable `c07a55a`, que fue el último estado confirmado donde XFCE abría correctamente en el dispositivo de referencia.
 
 ## Arquitectura
 
@@ -11,41 +11,38 @@ Android
 ├── Termux
 │   ├── Termux:X11
 │   ├── PulseAudio
-│   ├── PRoot-Distro
-│   └── acceso al almacenamiento compartido
+│   └── PRoot-Distro
 └── Debian
-    ├── XFCE en español de Colombia
+    ├── XFCE
     ├── Chromium
     ├── Visual Studio Code oficial ARM64
     ├── LibreOffice completo
     ├── VLC, mpv y FFmpeg
-    ├── Git, Python, Node.js y herramientas de compilación
+    ├── Git, Python, Node.js y npm
     └── Claude Code y Codex CLI
 ```
 
+Chromium y Visual Studio Code se ejecutan dentro de Debian. No se usan paquetes gráficos nativos de Termux ni un puente entre sistemas.
+
 ## Decisiones de estabilidad
 
-- Chromium y Visual Studio Code se ejecutan dentro de Debian.
-- Chromium usa únicamente los flags mínimos requeridos por PRoot: `--no-sandbox`, `--disable-dev-shm-usage` y X11.
-- Visual Studio Code usa `--no-sandbox` y `--disable-dev-shm-usage`.
-- No se exportan `MESA_LOADER_DRIVER_OVERRIDE`, `TU_DEBUG`, `GALLIUM_DRIVER` ni `VK_ICD_FILENAMES`.
-- No se usa `--ignore-gpu-blocklist`, `--use-angle`, Zink ni rasterización GPU forzada.
-- Mesa es la versión oficial de Debian.
-- Termux:X11 usa `-legacy-drawing` por defecto en este teléfono, porque la ruta normal produjo una pantalla blanca.
-- El compositor de XFCE permanece desactivado.
+La configuración predeterminada:
 
-## Requisitos
-
-Instala manualmente:
-
-1. Termux desde GitHub o F-Droid.
-2. La aplicación Android Termux:X11.
-
-No mezcles instalaciones de Termux procedentes de fuentes distintas.
+- Inicia Termux:X11 en `:1`.
+- Usa `--shared-tmp` para Debian PRoot.
+- No usa `-legacy-drawing`.
+- No envía `ACTION_STOP` durante el inicio.
+- No fuerza `es_CO`, `LANGUAGE` ni `LC_ALL`.
+- Usa `C.UTF-8` como locale neutro.
+- No instala ni exporta Mesa KGSL experimental.
+- No fuerza ANGLE, Zink, GPU rasterization ni `ignore-gpu-blocklist`.
+- No modifica el compositor antes de iniciar XFCE.
+- Mantiene el wake-lock durante la sesión.
+- Conserva `ACTION_STOP` únicamente al cerrar.
 
 ## Instalación limpia
 
-Pega este comando en Termux:
+Instala manualmente las aplicaciones Android **Termux** y **Termux:X11**. Después ejecuta en Termux:
 
 ```bash
 curl -fsSL \
@@ -55,72 +52,64 @@ chmod +x "$HOME/mobile-debian.sh" &&
 "$HOME/mobile-debian.sh"
 ```
 
-Durante la instalación Android solicitará acceso a los archivos. Concédelo para que Debian pueda abrir el almacenamiento compartido.
+Durante la instalación acepta el permiso de almacenamiento solicitado por Android.
 
-La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecuciones inician directamente XFCE.
+## Recuperación desde la versión 0.6
 
-## Aplicaciones incluidas
+No reinstales Debian. Actualiza solamente el lanzador y restablece la configuración de XFCE:
 
-### Escritorio
+```bash
+$HOME/mobile-debian.sh stop 2>/dev/null || true
 
-- XFCE.
-- Thunar.
-- XFCE Terminal.
-- Mousepad.
-- Ristretto.
-- File Roller.
-- PulseAudio y Pavucontrol.
+curl -fsSL \
+  https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main/mobile-debian.sh \
+  -o "$HOME/mobile-debian.sh" &&
+chmod +x "$HOME/mobile-debian.sh" &&
 
-### Navegación y desarrollo
-
-- Chromium de Debian ARM64.
-- Visual Studio Code oficial ARM64 mediante el repositorio de Microsoft.
-- Git.
-- Python 3, pip y venv.
-- Node.js y npm.
-- Build Essential y pkg-config.
-- Claude Code.
-- OpenAI Codex CLI.
-
-### Oficina y multimedia
-
-- LibreOffice completo en español.
-- Diccionario Hunspell en español.
-- VLC.
-- mpv.
-- FFmpeg.
-
-Microsoft Word Online no se instala ni se crea como acceso directo.
-
-## Idioma y región
-
-```text
-Usuario: felipe
-Idioma: es_CO.UTF-8
-Interfaz: español de Colombia
-Zona horaria: America/Bogota
+$HOME/mobile-debian.sh reset-desktop &&
+$HOME/mobile-debian.sh start
 ```
 
-El usuario tiene `sudo` sin contraseña dentro del contenedor.
+`reset-desktop`:
 
-## Almacenamiento de Android
+- mueve `~/.config/xfce4` a una copia con fecha;
+- elimina las sesiones XFCE guardadas;
+- elimina `.Xauthority`;
+- retira `LANG`, `LANGUAGE` y `LC_ALL` del perfil;
+- deja `/etc/default/locale` con `LANG=C.UTF-8`;
+- no elimina Debian, aplicaciones, proyectos ni archivos personales.
 
-El instalador ejecuta `termux-setup-storage` y enlaza el almacenamiento compartido en:
+## Aplicaciones
+
+Dentro de Debian se instalan:
+
+- XFCE, Thunar, Mousepad y utilidades del escritorio;
+- Chromium de Debian;
+- Visual Studio Code oficial ARM64;
+- LibreOffice completo con paquete de idioma español;
+- VLC, mpv y FFmpeg;
+- Git, Python, pip, venv, Node.js, npm y herramientas de compilación;
+- Claude Code y Codex CLI.
+
+No se instala Microsoft Word Online.
+
+## Almacenamiento Android
+
+Cuando el permiso está disponible, el almacenamiento compartido se monta en:
 
 ```text
 /mnt/android
 ```
 
-También crea en el escritorio el acceso **Archivos de Android** y accesos en el directorio personal:
+También se crean accesos:
 
 ```text
 ~/Android
 ~/Descargas-Android
 ~/Documentos-Android
-~/Camara-Android
 ```
 
-Usa esas carpetas para importar, exportar o compartir archivos. Los proyectos de Git, entornos virtuales y dependencias de Node deben permanecer en `/home/felipe`, porque el almacenamiento público de Android no admite correctamente permisos Unix, enlaces simbólicos ni todas las operaciones necesarias para desarrollo.
+Guarda repositorios Git, entornos virtuales y `node_modules` dentro de `/home/felipe`. Usa `/mnt/android` para importar y exportar archivos.
 
 ## Uso diario
 
@@ -136,23 +125,26 @@ Cerrar:
 $HOME/mobile-debian.sh stop
 ```
 
-También puedes abrir **Cerrar Mobile Debian** desde el escritorio. Al terminar XFCE, el script cierra Termux:X11 y PulseAudio y libera el wake-lock.
+Comprobar la instalación:
+
+```bash
+$HOME/mobile-debian.sh doctor
+```
 
 ## Comandos
 
 | Comando | Acción |
 |---|---|
-| Sin argumentos | Instala si hace falta; después inicia XFCE |
-| `install` | Instala o repara todos los componentes |
-| `start` | Activa wake-lock, audio, X11 y XFCE |
-| `stop` | Cierra la sesión y libera el wake-lock |
-| `restart` | Reinicia la sesión gráfica |
-| `repair` | Reaplica configuración sin reinstalar Debian |
-| `update` | Actualiza Termux, Debian y aplicaciones |
-| `update-ai` | Fuerza la actualización de Claude Code y Codex |
-| `self-update` | Descarga los scripts actuales del repositorio |
-| `status` | Muestra idioma, almacenamiento, wake-lock y X11 |
-| `doctor` | Verifica las aplicaciones principales |
+| `install` | Instala y configura el entorno |
+| `start` | Inicia PulseAudio, Termux:X11 y XFCE |
+| `stop` | Cierra XFCE, Termux:X11 y libera el wake-lock |
+| `restart` | Reinicia la sesión |
+| `repair` | Repara paquetes y accesos sin reinstalar Debian |
+| `reset-desktop` | Restablece únicamente la configuración de XFCE |
+| `update-ai` | Actualiza Claude Code y Codex |
+| `self-update` | Descarga los scripts actuales |
+| `status` | Muestra el estado de la configuración |
+| `doctor` | Verifica componentes principales |
 
 ## Registros
 
@@ -161,46 +153,9 @@ También puedes abrir **Cerrar Mobile Debian** desde el escritorio. Al terminar 
 ~/.local/state/mobile-debian/xfce.log
 ```
 
-## Opciones
-
-```text
-DISTRO
-LINUX_USER
-DISPLAY_NUM
-LOCALE
-LANGUAGE_VALUE
-TIMEZONE
-X11_LEGACY_DRAWING
-X11_FORCE_BGRA
-INSTALL_DEV_STACK
-INSTALL_OFFICE
-INSTALL_MEDIA
-INSTALL_VSCODE
-INSTALL_CHROMIUM
-INSTALL_AI_CLI
-ENABLE_ANDROID_STORAGE
-```
-
-Ejemplo para probar Termux:X11 sin dibujo heredado:
-
-```bash
-X11_LEGACY_DRAWING=0 $HOME/mobile-debian.sh start
-```
-
-## Exclusiones intencionales
-
-- No Java, JDK ni Maven.
-- No VNC ni TigerVNC.
-- No Wine ni Hangover.
-- No Metasploit ni herramientas ofensivas.
-- No paquetes gráficos nativos de Termux como `chromium` o `code-oss`.
-- No Mesa KGSL externa.
-- No Microsoft Word Online.
-
 ## Fuentes técnicas
 
 - Termux:X11: https://github.com/termux/termux-x11
 - PRoot-Distro: https://github.com/termux/proot-distro
-- Chromium para Debian ARM64: https://packages.debian.org/trixie/arm64/chromium
+- Linux-on-Samsung: https://github.com/techjarves/Linux-on-Samsung
 - Visual Studio Code para Linux: https://code.visualstudio.com/docs/setup/linux
-- Termux storage y sistema de archivos: https://github.com/termux/termux-packages/wiki/Termux-file-system-layout
