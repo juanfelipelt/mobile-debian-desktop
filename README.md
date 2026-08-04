@@ -1,6 +1,6 @@
 # Mobile Debian Desktop
 
-Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**. Probado en Samsung Galaxy S25 Ultra y Galaxy Tab S9, y válido para cualquier equipo ARM64.
+Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**. Desarrollado y probado en Samsung Galaxy S25 Ultra. Sirve en cualquier equipo ARM64 con memoria de sobra; en equipos ajustados de RAM, Android acaba matando la sesión.
 
 Las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Todo se dibuja por CPU: PRoot no expone la GPU.
 
@@ -71,7 +71,8 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 
 - XFCE.
 - Thunar.
-- XFCE Terminal.
+- XFCE Terminal con starship, el preset Pastel Powerline y la fuente CaskaydiaCove Nerd.
+- `lsd`, con `ls` y `cls` ya aliasados.
 - Mousepad.
 - Ristretto.
 - Capturas de pantalla con xfce4-screenshooter.
@@ -109,17 +110,26 @@ Zona horaria: America/Bogota
 
 El usuario tiene `sudo` sin contraseña dentro del contenedor.
 
-## Memoria de GIMP
+## Terminal
 
-El caché de mosaico marca a partir de cuánta memoria GIMP empieza a descargar a disco. Por defecto se calcula como el 40 % de la RAM del equipo, y la memoria de deshacer como el 12 %, para que un mismo script sirva en un teléfono de 12 GB y en una tablet de 8 sin dejar a Android sin margen.
-
-Se puede fijar a mano:
+Viene con **starship** usando el preset Pastel Powerline, la fuente **CaskaydiaCove Nerd** —que es la que tiene los glifos que el preset dibuja— y **lsd** con dos alias:
 
 ```bash
-GIMP_TILE_CACHE=8G GIMP_UNDO_MEMORY=2G $HOME/mobile-debian.sh repair
+alias ls='lsd'
+alias cls='clear'
 ```
 
-Subirlo por encima de la memoria realmente libre hace que GIMP deje de descargar mosaicos y que Android mate Termux al abrir una imagen grande. El resto del `gimprc` no se toca: solo se reescriben esas dos claves.
+El `~/.config/starship.toml` solo se escribe si no existe, y los alias se añaden al `~/.bashrc` sin duplicarse. A partir de ahí esos archivos son tuyos: reinstalar o reparar no los sobrescribe. Se omite todo con `INSTALL_SHELL_TOOLS=0`.
+
+## Memoria de GIMP
+
+El caché de mosaico marca a partir de cuánta memoria GIMP empieza a descargar a disco. Viene en 8 GB, y la memoria de deshacer en 2 GB, dimensionados para un equipo de 12 GB o más.
+
+```bash
+GIMP_TILE_CACHE=4G GIMP_UNDO_MEMORY=1G $HOME/mobile-debian.sh repair
+```
+
+Bájalos en equipos con menos memoria: por encima de la RAM libre GIMP deja de descargar mosaicos y Android mata Termux al abrir una imagen grande. El resto del `gimprc` no se toca, solo esas dos claves.
 
 ## Almacenamiento de Android
 
@@ -203,6 +213,7 @@ INSTALL_DEV_STACK
 INSTALL_OFFICE
 INSTALL_MEDIA
 INSTALL_GRAPHICS
+INSTALL_SHELL_TOOLS
 INSTALL_VSCODE
 INSTALL_CHROMIUM
 INSTALL_AI_CLI
@@ -280,7 +291,6 @@ Bajar la resolución agranda toda la interfaz y además da un escritorio más fl
 
 | Dispositivo | Nativa | Relación | Para el doble de tamaño |
 |---|---|---|---|
-| Galaxy Tab S9 | 2560x1600 | 16:10 | 1280x800 |
 | Galaxy S25 Ultra | 3120x1440 | 19.5:9 | 1560x720 |
 
 Deja desactivada la opción de estirar la imagen, o rellenará la pantalla deformándola.
@@ -336,7 +346,7 @@ En **Opciones de desarrollador**, que se habilitan tocando siete veces "Número 
 
 Reinicia el dispositivo al terminar.
 
-Estos ajustes evitan que Android mate por política, no por falta real de memoria. En equipos de 8 GB, Chromium con varias pestañas junto a Visual Studio Code puede agotar la RAM de verdad, y entonces interviene el OOM killer del núcleo. Para ese caso:
+Estos ajustes evitan que Android mate por política, no por falta real de memoria. Si Chromium con varias pestañas junto a Visual Studio Code agota la RAM de verdad, interviene el OOM killer del núcleo y ningún ajuste lo impide. Para bajar el consumo:
 
 ```bash
 LOW_MEMORY=1 $HOME/mobile-debian.sh repair

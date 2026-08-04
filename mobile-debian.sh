@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -44,11 +44,11 @@ DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
 # CPU, y con libgl1-mesa-dri instalado funciona; lo que antes dejaba la pantalla
 # negra era encenderlo sin ese driver. Ponlo a 0 en equipos que se arrastren.
 X11_COMPOSITING="${X11_COMPOSITING:-1}"
-# Memoria de GIMP. Vacías, se calculan como una fracción de la RAM del equipo:
-# fijar un valor mayor que la memoria libre hace que GIMP no descargue mosaicos
-# a disco y que Android acabe matando Termux. Acepta sufijos: 8G, 512M.
-GIMP_TILE_CACHE="${GIMP_TILE_CACHE:-}"
-GIMP_UNDO_MEMORY="${GIMP_UNDO_MEMORY:-}"
+# Memoria de GIMP, dimensionada para un equipo de 12 GB o más. En equipos con
+# menos, bájalas: el caché es el umbral a partir del cual GIMP descarga a disco,
+# y por encima de la memoria libre Android termina matando Termux.
+GIMP_TILE_CACHE="${GIMP_TILE_CACHE:-8G}"
+GIMP_UNDO_MEMORY="${GIMP_UNDO_MEMORY:-2G}"
 KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT:-latam}"
 KEYBOARD_VARIANT="${KEYBOARD_VARIANT:-}"
 
@@ -56,6 +56,7 @@ INSTALL_DEV_STACK="${INSTALL_DEV_STACK:-1}"
 INSTALL_OFFICE="${INSTALL_OFFICE:-1}"
 INSTALL_MEDIA="${INSTALL_MEDIA:-1}"
 INSTALL_GRAPHICS="${INSTALL_GRAPHICS:-1}"
+INSTALL_SHELL_TOOLS="${INSTALL_SHELL_TOOLS:-1}"
 INSTALL_VSCODE="${INSTALL_VSCODE:-1}"
 INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-1}"
 INSTALL_AI_CLI="${INSTALL_AI_CLI:-1}"
@@ -133,8 +134,8 @@ load_config(){
   LOW_MEMORY="${LOW_MEMORY:-0}"
   DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
   X11_COMPOSITING="${X11_COMPOSITING:-1}"
-  GIMP_TILE_CACHE="${GIMP_TILE_CACHE-}"
-  GIMP_UNDO_MEMORY="${GIMP_UNDO_MEMORY-}"
+  GIMP_TILE_CACHE="${GIMP_TILE_CACHE:-8G}"
+  GIMP_UNDO_MEMORY="${GIMP_UNDO_MEMORY:-2G}"
   KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT-latam}"
   KEYBOARD_VARIANT="${KEYBOARD_VARIANT-}"
   STORAGE_SOURCE="${STORAGE_SOURCE:-}"
@@ -245,6 +246,7 @@ KEYBOARD_LAYOUT="${15:-}"
 KEYBOARD_VARIANT="${16:-}"
 GIMP_TILE_CACHE="${17:-}"
 GIMP_UNDO_MEMORY="${18:-}"
+INSTALL_SHELL_TOOLS="${19:-0}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -343,6 +345,73 @@ AI
     warn "Alguna CLI de IA no pudo instalarse."
 }
 install_ai
+
+install_shell_tools(){
+  [[ "$INSTALL_SHELL_TOOLS" == 1 ]] || return 0
+
+  say "Instalando lsd"
+  apt-get install -y --no-install-recommends lsd || warn "lsd no está disponible."
+
+  if ! command -v starship >/dev/null 2>&1; then
+    say "Instalando starship"
+    if curl -fSL --retry 2 \
+         https://github.com/starship/starship/releases/latest/download/starship-aarch64-unknown-linux-musl.tar.gz \
+         -o /tmp/starship.tar.gz &&
+       tar -xzf /tmp/starship.tar.gz -C /usr/local/bin starship; then
+      chmod 0755 /usr/local/bin/starship
+    else
+      warn "No se pudo instalar starship."
+    fi
+    rm -f /tmp/starship.tar.gz
+  fi
+
+  # La fuente trae los glifos que necesita el preset Pastel Powerline. Del
+  # paquete de 36 variantes solo se instalan las cuatro monoespaciadas.
+  if ! fc-list 2>/dev/null | grep -q CaskaydiaCove; then
+    say "Instalando la fuente CaskaydiaCove Nerd (descarga de 55 MB)"
+    if curl -fSL --retry 2 \
+         https://github.com/ryanoasis/nerd-fonts/releases/latest/download/CascadiaCode.zip \
+         -o /tmp/CascadiaCode.zip &&
+       unzip -oj /tmp/CascadiaCode.zip \
+         'CaskaydiaCoveNerdFontMono-Regular.ttf' \
+         'CaskaydiaCoveNerdFontMono-Bold.ttf' \
+         'CaskaydiaCoveNerdFontMono-Italic.ttf' \
+         'CaskaydiaCoveNerdFontMono-BoldItalic.ttf' \
+         -d /usr/local/share/fonts >/dev/null; then
+      fc-cache -f >/dev/null 2>&1 || true
+    else
+      warn "No se pudo instalar la fuente Nerd."
+    fi
+    rm -f /tmp/CascadiaCode.zip
+  fi
+
+  cat > /tmp/mobile-debian-shell.sh <<'SHELL'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+touch "$HOME/.bashrc"
+
+# El preset solo se escribe si no existe: a partir de ahí el archivo es tuyo y
+# ninguna reinstalación lo toca.
+if command -v starship >/dev/null 2>&1; then
+  mkdir -p "$HOME/.config"
+  [[ -f "$HOME/.config/starship.toml" ]] ||
+    starship preset pastel-powerline -o "$HOME/.config/starship.toml"
+  grep -Fq 'starship init bash' "$HOME/.bashrc" ||
+    printf '\neval "$(starship init bash)"\n' >> "$HOME/.bashrc"
+fi
+
+command -v lsd >/dev/null 2>&1 &&
+  { grep -Fq "alias ls='lsd'" "$HOME/.bashrc" ||
+      printf "alias ls='lsd'\n" >> "$HOME/.bashrc"; }
+grep -Fq "alias cls='clear'" "$HOME/.bashrc" ||
+  printf "alias cls='clear'\n" >> "$HOME/.bashrc"
+SHELL
+  chmod 0755 /tmp/mobile-debian-shell.sh
+  chown "$LINUX_USER:$LINUX_USER" /tmp/mobile-debian-shell.sh
+  su - "$LINUX_USER" -c "bash /tmp/mobile-debian-shell.sh" ||
+    warn "No se pudo configurar el intérprete de órdenes."
+}
+install_shell_tools
 
 say "Configurando aplicaciones para PRoot y Termux:X11"
 # Con LANG en español xdg-user-dirs crearía ~/Escritorio y xfdesktop dejaría de
@@ -537,18 +606,8 @@ done
 
 if [[ "$INSTALL_GRAPHICS" == 1 ]] && command -v gimp >/dev/null 2>&1; then
   say "Ajustando la memoria de GIMP"
-  # Sin valores explícitos se reparte según la RAM del equipo. El caché de
-  # mosaico es el umbral a partir del cual GIMP descarga a disco: por encima de
-  # la memoria libre deja de descargar y Android termina matando Termux.
-  ram_mb="$(awk '/^MemTotal:/ { printf "%d", $2 / 1024; exit }' /proc/meminfo 2>/dev/null || echo 0)"
   tile_cache="$GIMP_TILE_CACHE"
   undo_memory="$GIMP_UNDO_MEMORY"
-  if [[ -z "$tile_cache" ]]; then
-    if [[ "$ram_mb" -gt 0 ]]; then tile_cache="$(( ram_mb * 40 / 100 ))M"; else tile_cache=2048M; fi
-  fi
-  if [[ -z "$undo_memory" ]]; then
-    if [[ "$ram_mb" -gt 0 ]]; then undo_memory="$(( ram_mb * 12 / 100 ))M"; else undo_memory=512M; fi
-  fi
 
   gimp_series="$(gimp --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -n 1)"
   gimp_series="${gimp_series:-3.0}"
@@ -588,7 +647,7 @@ configure_debian(){
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
       "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS" \
       "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT" \
-      "$GIMP_TILE_CACHE" "$GIMP_UNDO_MEMORY"
+      "$GIMP_TILE_CACHE" "$GIMP_UNDO_MEMORY" "$INSTALL_SHELL_TOOLS"
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"
@@ -925,7 +984,7 @@ mkdir -p "$HOME/.themes" "$HOME/.config/xfce4/terminal" \
   "$HOME/.cache/mobile-debian/installers"
 
 mono_font="Monospace 11"
-for candidate in "JetBrains Mono" "Fira Code" "Cascadia Code"; do
+for candidate in "CaskaydiaCove Nerd Font Mono" "JetBrains Mono" "Fira Code"; do
   if fc-list : family 2>/dev/null | grep -Fq "$candidate"; then
     mono_font="$candidate 11"
     break
