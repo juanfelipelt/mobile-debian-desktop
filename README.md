@@ -152,6 +152,7 @@ También puedes abrir **Cerrar Mobile Debian** desde el escritorio. Al terminar 
 | `stop` | Cierra la sesión y libera el wake-lock |
 | `restart` | Reinicia la sesión gráfica |
 | `repair` | Reaplica configuración sin reinstalar Debian |
+| `theme` | Aplica el tema Catppuccin Mocha al escritorio |
 | `update` | Actualiza Termux, Debian y aplicaciones |
 | `update-ai` | Fuerza la actualización de Claude Code y Codex |
 | `self-update` | Descarga los scripts actuales del repositorio |
@@ -193,6 +194,28 @@ Las variables de entorno tienen prioridad sobre el archivo de configuración gua
 ```bash
 X11_LEGACY_DRAWING=1 $HOME/mobile-debian.sh start
 ```
+
+## Personalización
+
+```bash
+$HOME/mobile-debian.sh stop
+$HOME/mobile-debian.sh theme
+$HOME/mobile-debian.sh start
+```
+
+Aplica **Catppuccin Mocha** con acento azul: tema GTK y decoración de ventanas desde las releases de [catppuccin/gtk](https://github.com/catppuccin/gtk), iconos Papirus-Dark, paleta oficial en la terminal, fondo liso `#1e1e2e`, panel sólido de 40 píxeles y tipografía monoespaciada JetBrains Mono, Fira Code o Cascadia Code, la primera que esté disponible.
+
+El escritorio queda **plano a propósito**: sin transparencias, desenfoque ni sombras, porque todo eso necesita el compositor y el compositor produce pantalla negra en este montaje. Catppuccin funciona bien con esa restricción porque su identidad está en la paleta, no en los efectos.
+
+Si la descarga del tema falla, el escritorio queda en Adwaita-dark en lugar de romperse.
+
+Tres aplicaciones no siguen el tema del sistema:
+
+- **Visual Studio Code**: el comando instala la extensión oficial de Catppuccin y la deja seleccionada.
+- **LibreOffice**: con el complemento gtk3 sigue el tema oscuro automáticamente. Si no lo hace, ponlo en Herramientas → Opciones → Ver → Apariencia.
+- **Chromium**: solo lo sigue en parte. El resto se ajusta desde sus propios temas.
+
+Para volver atrás, elige otro tema en Ajustes → Apariencia y en Ajustes → Gestor de ventanas. La configuración anterior de la terminal se guarda en `~/.config/xfce4/terminal/terminalrc.previo`.
 
 ## Ajustes de Android
 

@@ -808,6 +808,164 @@ install_all(){
   release_wake_lock
 }
 
+write_theme_script(){
+  cat > "$TMPDIR/mobile-debian-theme.sh" <<'THEME_ROOT'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+export DEBIAN_FRONTEND=noninteractive
+LINUX_USER="$1"
+
+say(){ printf '[Tema] %s\n' "$*"; }
+warn(){ printf '[AVISO] %s\n' "$*" >&2; }
+
+say "Instalando iconos y tipografías"
+apt-get install -y --no-install-recommends papirus-icon-theme unzip ||
+  warn "No se pudieron instalar los iconos Papirus."
+for font_package in fonts-jetbrains-mono fonts-firacode fonts-cascadia-code; do
+  apt-get install -y --no-install-recommends "$font_package" >/dev/null 2>&1 && break || true
+done
+
+cat > /tmp/mobile-debian-theme-user.sh <<'THEME_USER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Catppuccin Mocha con acento azul, que es el que combina con las carpetas de
+# Papirus. El repositorio del tema está archivado, así que la URL es estable.
+THEME_NAME="catppuccin-mocha-blue-standard+default"
+THEME_URL="https://github.com/catppuccin/gtk/releases/download/v1.0.3/${THEME_NAME}.zip"
+BASE="#1e1e2e"
+say(){ printf '[Tema] %s\n' "$*"; }
+warn(){ printf '[AVISO] %s\n' "$*" >&2; }
+
+mkdir -p "$HOME/.themes" "$HOME/.config/xfce4/terminal" \
+  "$HOME/.cache/mobile-debian/installers"
+
+gtk_theme="Adwaita-dark"
+wm_theme="Default"
+archive="$HOME/.cache/mobile-debian/installers/catppuccin-gtk.zip"
+if curl -fsSL "$THEME_URL" -o "$archive" &&
+   unzip -oq "$archive" -d "$HOME/.themes"; then
+  gtk_theme="$THEME_NAME"
+  # Las variantes -hdpi y -xhdpi solo cambian la separación de los botones y no
+  # traen index.theme, así que no aparecen en el selector de Xfce. Se usa la
+  # base: en estos temas la altura de la barra la marca la fuente del título,
+  # que se sube abajo para que se pueda agarrar con el dedo.
+  [[ -d "$HOME/.themes/$THEME_NAME/xfwm4" ]] && wm_theme="$THEME_NAME"
+  say "Tema Catppuccin Mocha instalado (ventanas: $wm_theme)"
+else
+  warn "No se pudo descargar Catppuccin. Se usa Adwaita-dark como respaldo."
+fi
+
+mono_font="Monospace 11"
+for candidate in "JetBrains Mono" "Fira Code" "Cascadia Code"; do
+  if fc-list : family 2>/dev/null | grep -Fq "$candidate"; then
+    mono_font="$candidate 11"
+    break
+  fi
+done
+
+say "Aplicando paleta a la terminal"
+[[ -f "$HOME/.config/xfce4/terminal/terminalrc" ]] &&
+  cp -n "$HOME/.config/xfce4/terminal/terminalrc" \
+        "$HOME/.config/xfce4/terminal/terminalrc.previo" 2>/dev/null || true
+cat > "$HOME/.config/xfce4/terminal/terminalrc" <<TERMINALRC
+[Configuration]
+FontName=$mono_font
+MiscAlwaysShowTabs=FALSE
+MiscBell=FALSE
+MiscCursorBlinks=TRUE
+MiscCursorShape=TERMINAL_CURSOR_SHAPE_BLOCK
+MiscDefaultGeometry=100x28
+MiscMenubarDefault=FALSE
+MiscToolbarDefault=FALSE
+ScrollingUnlimited=TRUE
+ColorForeground=#cdd6f4
+ColorBackground=#1e1e2e
+ColorCursor=#f5e0dc
+ColorSelection=#585b70
+ColorSelectionUseDefault=FALSE
+ColorBold=#cdd6f4
+ColorPalette=#45475a;#f38ba8;#a6e3a1;#f9e2af;#89b4fa;#f5c2e7;#94e2d5;#bac2de;#585b70;#f38ba8;#a6e3a1;#f9e2af;#89b4fa;#f5c2e7;#94e2d5;#a6adc8
+TERMINALRC
+
+say "Aplicando ajustes de XFCE"
+apply(){
+  dbus-launch --exit-with-session bash -s <<APPLY
+set -u
+xfconf-query -c xsettings -p /Net/ThemeName -t string -s '$gtk_theme' --create
+xfconf-query -c xsettings -p /Net/IconThemeName -t string -s 'Papirus-Dark' --create
+xfconf-query -c xsettings -p /Gtk/FontName -t string -s 'Noto Sans 11' --create
+xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s '$mono_font' --create
+xfconf-query -c xsettings -p /Gtk/CursorThemeSize -t int -s 32 --create
+xfconf-query -c xfwm4 -p /general/theme -t string -s '$wm_theme' --create
+xfconf-query -c xfwm4 -p /general/title_font -t string -s 'Noto Sans Bold 13' --create
+xfconf-query -c xfwm4 -p /general/title_vertical_offset_active -t int -s 4 --create
+xfconf-query -c xfwm4 -p /general/title_vertical_offset_inactive -t int -s 4 --create
+xfconf-query -c xfwm4 -p /general/easy_click -t string -s 'Super' --create
+xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create
+xfconf-query -c xfce4-panel -p /panels/panel-1/size -t int -s 40 --create
+xfconf-query -c xfce4-panel -p /panels/panel-1/background-style -t int -s 1 --create
+xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba \\
+  -t double -t double -t double -t double \\
+  -s 0.1176 -s 0.1176 -s 0.1804 -s 1 --create
+
+# El fondo se define por monitor y espacio de trabajo, y el nombre del monitor
+# depende de Termux:X11, así que se recorren los que existan.
+for prop in \$(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -E '/workspace[0-9]+/last-image\$' || true); do
+  base="\${prop%/last-image}"
+  xfconf-query -c xfce4-desktop -p "\$base/image-style" -t int -s 0 --create
+  xfconf-query -c xfce4-desktop -p "\$base/color-style" -t int -s 0 --create
+  xfconf-query -c xfce4-desktop -p "\$base/rgba1" \\
+    -t double -t double -t double -t double \\
+    -s 0.1176 -s 0.1176 -s 0.1804 -s 1 --create
+done
+sleep 2
+APPLY
+}
+apply || warn "Algún ajuste de XFCE no se pudo aplicar."
+
+if command -v code >/dev/null 2>&1; then
+  say "Configurando Visual Studio Code"
+  code --install-extension Catppuccin.catppuccin-vsc --force >/dev/null 2>&1 ||
+    warn "No se pudo instalar la extensión Catppuccin de VS Code."
+  settings="$HOME/.config/Code/User/settings.json"
+  mkdir -p "$(dirname "$settings")"
+  [[ -s "$settings" ]] || printf '{}\n' > "$settings"
+  merged="$(mktemp)"
+  if jq '. + {"workbench.colorTheme":"Catppuccin Mocha","editor.fontFamily":"'"${mono_font% *}"', monospace"}' \
+       "$settings" > "$merged" 2>/dev/null; then
+    mv "$merged" "$settings"
+  else
+    rm -f "$merged"
+    warn "settings.json de VS Code no es JSON válido; se dejó intacto."
+  fi
+fi
+
+say "Tema aplicado"
+THEME_USER
+
+chmod 0755 /tmp/mobile-debian-theme-user.sh
+chown "$LINUX_USER:$LINUX_USER" /tmp/mobile-debian-theme-user.sh
+su - "$LINUX_USER" -c "bash /tmp/mobile-debian-theme-user.sh"
+THEME_ROOT
+  chmod 0755 "$TMPDIR/mobile-debian-theme.sh"
+}
+
+apply_theme(){
+  require_termux
+  installed || die "Primero instala el entorno."
+  load_config
+  if x11_pids | grep -q .; then
+    warn "Hay una sesión gráfica activa. Ciérrala con '$0 stop' para que los"
+    warn "ajustes no se sobrescriban al salir de XFCE."
+  fi
+  acquire_wake_lock
+  write_theme_script
+  distro_login "" /bin/bash /tmp/mobile-debian-theme.sh "$LINUX_USER"
+  release_wake_lock
+  ok "Catppuccin Mocha aplicado. Inicia la sesión con: $0 start"
+}
+
 update_all(){
   require_termux
   installed || die "Primero instala el entorno."
@@ -920,12 +1078,13 @@ case "${1:-auto}" in
   restart) stop_desktop; start_desktop ;;
   update) update_all ;;
   repair) repair ;;
+  theme) apply_theme ;;
   update-ai) update_ai ;;
   self-update) self_update ;;
   status) status ;;
   doctor) doctor ;;
   *)
-    echo "Uso: $0 [install|start|stop|restart|update|repair|update-ai|self-update|status|doctor]"
+    echo "Uso: $0 [install|start|stop|restart|update|repair|theme|update-ai|self-update|status|doctor]"
     exit 2
     ;;
 esac
