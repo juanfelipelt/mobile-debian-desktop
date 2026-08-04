@@ -878,7 +878,10 @@ install_mocha(){
     say "Catppuccin Mocha ya estaba instalado"
   else
     rm -rf "$staging"
-    if curl -fsSL "$THEME_URL" -o "$archive" && unzip -oq "$archive" -d "$staging"; then
+    curl_log="$(mktemp)"
+    if curl -fSL --retry 2 "$THEME_URL" -o "$archive" 2>"$curl_log" &&
+       unzip -oq "$archive" -d "$staging"; then
+      rm -f "$curl_log"
       rm -rf "$HOME/.themes/$THEME_NAME"
       mv "$staging/$UPSTREAM" "$HOME/.themes/$THEME_NAME"
       # Las variantes -hdpi y -xhdpi solo cambian la separación de los botones
@@ -887,7 +890,10 @@ install_mocha(){
       sed -i "s/^Name=.*/Name=$THEME_NAME/" "$HOME/.themes/$THEME_NAME/index.theme" 2>/dev/null || true
       say "Catppuccin Mocha instalado"
     else
-      warn "No se pudo descargar Catppuccin. Se usa Adwaita-dark como respaldo."
+      warn "No se pudo instalar Catppuccin. Se usa Adwaita-dark como respaldo."
+      warn "Motivo informado por curl:"
+      sed 's/^/  /' "$curl_log" >&2 2>/dev/null || true
+      rm -f "$curl_log"
       rm -rf "$staging"
       return 0
     fi
