@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.9.1"
+VERSION="0.9.2"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -900,7 +900,21 @@ install_mocha(){
   fi
 
   gtk_theme="$THEME_NAME"
-  [[ -d "$HOME/.themes/$THEME_NAME/xfwm4" ]] && wm_theme="$THEME_NAME"
+  # El tema trae una carpeta xfwm4 con solo themerc, sin las imágenes de la
+  # barra de título ni de los botones. Usarlo deja las ventanas sin decoración
+  # y sin forma de cerrarlas, así que solo se acepta si trae imágenes de verdad.
+  if compgen -G "$HOME/.themes/$THEME_NAME/xfwm4/*.png" >/dev/null ||
+     compgen -G "$HOME/.themes/$THEME_NAME/xfwm4/*.xpm" >/dev/null; then
+    wm_theme="$THEME_NAME"
+  else
+    for candidate in Default-hdpi Default; do
+      if [[ -d "/usr/share/themes/$candidate/xfwm4" ]]; then
+        wm_theme="$candidate"
+        break
+      fi
+    done
+    say "Catppuccin no trae decoración de ventanas usable; se usa $wm_theme"
+  fi
 
   say "Aplicando la paleta a la terminal"
   [[ -f "$HOME/.config/xfce4/terminal/terminalrc" ]] &&
