@@ -110,6 +110,19 @@ Zona horaria: America/Bogota
 
 El usuario tiene `sudo` sin contraseña dentro del contenedor.
 
+## Qué sobrescribe una reinstalación
+
+`self-update` solo reemplaza el script en Termux; no toca nada dentro de Debian.
+
+`repair` reaplica la configuración del escritorio. **Conserva** el `starship.toml`, los alias del `.bashrc`, lo que hayas añadido al `.profile`, el resto del `gimprc` y los ajustes de Visual Studio Code que no sean el tema y la fuente.
+
+**Reescribe** el `terminalrc` de la terminal, los accesos directos del escritorio, los envoltorios de Chromium y Visual Studio Code, y los ajustes de XFCE que gobierna el tema. Si has personalizado la terminal a mano, guarda una copia antes:
+
+```bash
+proot-distro login debian --user felipe -- \
+  cp ~/.config/xfce4/terminal/terminalrc ~/terminalrc.mio
+```
+
 ## Terminal
 
 Viene con **starship** usando el preset Pastel Powerline, la fuente **CaskaydiaCove Nerd** —que es la que tiene los glifos que el preset dibuja— y **lsd** con dos alias:

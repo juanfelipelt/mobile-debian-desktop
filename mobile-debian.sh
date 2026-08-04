@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.2.0"
+VERSION="1.2.1"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -583,12 +583,17 @@ for item in light-locker.desktop xiccd.desktop polkit-mate-authentication-agent-
     > "$USER_HOME/.config/autostart/$item"
 done
 
-cat > "$USER_HOME/.profile" <<EOF_PROFILE
+# Los ajustes propios viven en su archivo y .profile solo lo carga, para no
+# reescribir un archivo donde el usuario puede haber puesto cosas suyas.
+cat > "$USER_HOME/.config/mobile-debian.env" <<EOF_ENV
 export LANG=$LOCALE
 export LANGUAGE=$LANGUAGE_VALUE
 export LC_ALL=$LOCALE
 export PATH="\$HOME/.local/bin:\$PATH"
-EOF_PROFILE
+EOF_ENV
+touch "$USER_HOME/.profile"
+grep -Fq 'mobile-debian.env' "$USER_HOME/.profile" ||
+  printf '\n. "$HOME/.config/mobile-debian.env"\n' >> "$USER_HOME/.profile"
 
 chown -R "$LINUX_USER:$LINUX_USER" \
   "$USER_HOME/.local" \
