@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.12.2"
+VERSION="1.0.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario

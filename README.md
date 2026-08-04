@@ -1,8 +1,8 @@
 # Mobile Debian Desktop
 
-Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**, configurado para el Samsung Galaxy S25 Ultra y otros equipos ARM64.
+Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**. Probado en Samsung Galaxy S25 Ultra y Galaxy Tab S9, y válido para cualquier equipo ARM64.
 
-La versión 0.12 mantiene la arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Sobre esa base, la 0.7 corrigió el arranque gráfico que terminaba en pantalla negra, la 0.8 añadió el perfil de bajo consumo para equipos con poca RAM, la 0.9 el tema Catppuccin Mocha la 0.10 la distribución de teclado y las traducciones de Chromium, la 0.11 el compositor con el tema completo y la 0.12 la limpieza de ajustes duplicados.
+Las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Todo se dibuja por CPU: PRoot no expone la GPU.
 
 ## Arquitectura
 
@@ -26,11 +26,9 @@ Android
 
 ## Decisiones de estabilidad
 
-- Chromium y Visual Studio Code se ejecutan dentro de Debian.
 - Chromium usa únicamente los flags mínimos requeridos por PRoot: `--no-sandbox`, `--disable-dev-shm-usage` y X11. Con `LOW_MEMORY=1` se le añaden los recortes de memoria descritos en Ajustes de Android.
 - Visual Studio Code usa `--no-sandbox` y `--disable-dev-shm-usage`.
-- No se exportan `MESA_LOADER_DRIVER_OVERRIDE`, `TU_DEBUG`, `GALLIUM_DRIVER` ni `VK_ICD_FILENAMES`.
-- No se usa `--ignore-gpu-blocklist`, `--use-angle`, Zink ni rasterización GPU forzada.
+- No se fuerzan controladores gráficos por variables de entorno ni por flags de Chromium. Los intentos con KGSL y Zink son el origen de las pantallas blancas y negras que costó desenredar.
 - Mesa es la versión oficial de Debian, con `libgl1-mesa-dri` instalado y `LIBGL_ALWAYS_SOFTWARE=1`, porque PRoot no expone la GPU.
 - Termux:X11 usa la ruta de dibujo normal, igual que los scripts de referencia. `-legacy-drawing` quedó desactivado por defecto porque en las versiones actuales de la aplicación produce pantalla negra.
 - La sesión arranca con `startxfce4`, no con `xfce4-session` directamente, para que se inicien xfsettingsd, xfwm4, xfdesktop y el panel.
@@ -98,8 +96,6 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 - VLC.
 - mpv.
 - FFmpeg.
-
-Microsoft Word Online no se instala ni se crea como acceso directo.
 
 ## Idioma y región
 
@@ -198,10 +194,10 @@ INSTALL_AI_CLI
 ENABLE_ANDROID_STORAGE
 ```
 
-Las variables de entorno tienen prioridad sobre el archivo de configuración guardado. Ejemplo para probar el dibujo heredado de Termux:X11:
+Las variables de entorno tienen prioridad sobre el archivo de configuración guardado, y el valor queda anotado para las siguientes ejecuciones:
 
 ```bash
-X11_LEGACY_DRAWING=1 $HOME/mobile-debian.sh start
+X11_COMPOSITING=0 $HOME/mobile-debian.sh repair
 ```
 
 ## Personalización
@@ -248,9 +244,18 @@ Tres aplicaciones no siguen el tema del sistema:
 
 Nada de esta sección la configura el script: son ajustes de la aplicación Android, y hay que repetirlos en cada dispositivo. Se llega a ellos desde el botón **Preferences** de la notificación persistente de Termux:X11, o desde el menú de la propia aplicación.
 
-### Prefer scancodes when possible
+### Teclado
 
-**Actívalo.** Sin esta opción la aplicación entrega caracteres ya resueltos, X11 nunca ve la pulsación real y las teclas muertas no componen: el acento sale suelto, `t´ilde` en vez de `tílde`. Hace falta además de la distribución de teclado que aplica el script, no en su lugar.
+Dos ajustes que van juntos, y esta es la combinación que funciona:
+
+| Ajuste | Estado |
+|---|---|
+| Prefer scancodes when possible | **activado** |
+| Hardware keyboard scancodes workaround | **desactivado** |
+
+Sin el primero la aplicación entrega caracteres ya resueltos, X11 no ve la pulsación real y las teclas muertas no componen: sale `t´ilde` en vez de `tílde`. Pero el segundo reescribe los códigos de tecla, y con ambos activos se pierde el Bloq Mayús. Activando uno y desactivando el otro funcionan las dos cosas.
+
+Esto va además de la distribución que aplica el script, no en su lugar.
 
 ### Resolución y escala
 
@@ -294,9 +299,7 @@ KEYBOARD_LAYOUT=es $HOME/mobile-debian.sh repair    # español de España
 KEYBOARD_LAYOUT= $HOME/mobile-debian.sh repair      # no tocar la distribución
 ```
 
-Esto por sí solo no basta: hace falta también **Prefer scancodes when possible** en Termux:X11.
-
-Si los acentos tampoco funcionan en aplicaciones de Android fuera de XFCE, el problema es la distribución del teclado físico en el propio sistema, y se cambia en Ajustes → Administración general → Configuración del teclado físico.
+Hace falta además la pareja de ajustes descrita en Configuración de Termux:X11. Si los acentos tampoco funcionan fuera de XFCE, en aplicaciones de Android, el problema es el teclado físico del sistema y se cambia en Ajustes → Administración general → Configuración del teclado físico.
 
 ## Ajustes de Android
 
@@ -345,16 +348,6 @@ Si las versiones coinciden y la pantalla sigue negra:
 3. Revisa los registros de `~/.local/state/mobile-debian/`.
 4. Reaplica la configuración del escritorio: `$HOME/mobile-debian.sh repair`.
 
-## Exclusiones intencionales
-
-- No Java, JDK ni Maven.
-- No VNC ni TigerVNC.
-- No Wine ni Hangover.
-- No Metasploit ni herramientas ofensivas.
-- No paquetes gráficos nativos de Termux como `chromium` o `code-oss`.
-- No Mesa KGSL externa.
-- No Microsoft Word Online.
-
 ## Fuentes técnicas
 
 - Termux:X11: https://github.com/termux/termux-x11
@@ -362,3 +355,4 @@ Si las versiones coinciden y la pantalla sigue negra:
 - Chromium para Debian ARM64: https://packages.debian.org/trixie/arm64/chromium
 - Visual Studio Code para Linux: https://code.visualstudio.com/docs/setup/linux
 - Termux storage y sistema de archivos: https://github.com/termux/termux-packages/wiki/Termux-file-system-layout
+- Catppuccin para GTK: https://github.com/catppuccin/gtk
