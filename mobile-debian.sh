@@ -1,13 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.11.0"
+VERSION="0.11.1"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
 # exporta en el entorno tiene prioridad sobre el archivo, así que se anota aquí
 # antes de aplicar cualquier valor por defecto.
-CONFIG_VERSION_CURRENT=2
+CONFIG_VERSION_CURRENT=3
 CONFIG_KEYS=(
   DISPLAY_NUM LOCALE LANGUAGE_VALUE TIMEZONE
   X11_LEGACY_DRAWING X11_FORCE_BGRA X11_SOFTWARE_GL LOW_MEMORY
@@ -39,10 +39,10 @@ LOW_MEMORY="${LOW_MEMORY:-0}"
 DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
 # Distribución de teclado de X11. latam cubre el español de Latinoamérica;
 # usa es para el de España, o vacío para no tocar nada.
-# El compositor da transparencias, sombras y esquinas redondeadas, pero dibuja
-# por CPU y fue lo que dejó la pantalla negra cuando faltaba el driver DRI.
-# Se activa por dispositivo, después de comprobar que ese equipo lo aguanta.
-X11_COMPOSITING="${X11_COMPOSITING:-0}"
+# El compositor da transparencias, sombras y esquinas redondeadas. Dibuja por
+# CPU, y con libgl1-mesa-dri instalado funciona; lo que antes dejaba la pantalla
+# negra era encenderlo sin ese driver. Ponlo a 0 en equipos que se arrastren.
+X11_COMPOSITING="${X11_COMPOSITING:-1}"
 KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT:-latam}"
 KEYBOARD_VARIANT="${KEYBOARD_VARIANT:-}"
 
@@ -101,13 +101,18 @@ load_config(){
     stored_version="${CONFIG_VERSION:-1}"
   fi
 
-  # Las configuraciones de la versión 1 guardaron -legacy-drawing activado. Esa
-  # ruta produce pantalla negra con las versiones actuales de Termux:X11, así
-  # que se descarta el valor heredado una sola vez y se deja migrado el archivo.
+  # Los valores heredados de versiones anteriores se corrigen una sola vez, por
+  # etapas, y el archivo queda migrado.
   if [[ "$stored_version" -gt 0 && "$stored_version" -lt "$CONFIG_VERSION_CURRENT" ]]; then
-    warn "Configuración anterior detectada: se desactiva el dibujo heredado de Termux:X11."
-    X11_LEGACY_DRAWING=0
-    X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
+    if [[ "$stored_version" -lt 2 ]]; then
+      warn "Configuración anterior: se desactiva el dibujo heredado de Termux:X11."
+      X11_LEGACY_DRAWING=0
+      X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
+    fi
+    if [[ "$stored_version" -lt 3 ]]; then
+      warn "Configuración anterior: se activa el compositor de XFCE."
+      X11_COMPOSITING=1
+    fi
     save_config
   fi
 
@@ -121,7 +126,7 @@ load_config(){
   X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
   LOW_MEMORY="${LOW_MEMORY:-0}"
   DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
-  X11_COMPOSITING="${X11_COMPOSITING:-0}"
+  X11_COMPOSITING="${X11_COMPOSITING:-1}"
   KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT-latam}"
   KEYBOARD_VARIANT="${KEYBOARD_VARIANT-}"
   STORAGE_SOURCE="${STORAGE_SOURCE:-}"
@@ -992,6 +997,8 @@ MiscDefaultGeometry=100x28
 MiscMenubarDefault=FALSE
 MiscToolbarDefault=FALSE
 ScrollingUnlimited=TRUE
+BackgroundMode=TERMINAL_BACKGROUND_TRANSPARENT
+BackgroundDarkness=$term_darkness
 ColorForeground=#cdd6f4
 ColorBackground=#1e1e2e
 ColorCursor=#f5e0dc
@@ -1028,6 +1035,16 @@ if [[ "$CHOICE" == mocha ]]; then
   panel_style=1
   backdrop_style=0
   backdrop_image=false
+  # Con compositor el panel puede respirar y las ventanas proyectar sombra.
+  if [[ "$COMPOSITING" == true ]]; then
+    panel_alpha=0.92
+    shadows=true
+    term_darkness=0.96
+  else
+    panel_alpha=1
+    shadows=false
+    term_darkness=1.0
+  fi
 else
   restore_default
   icon_theme="Adwaita"
@@ -1037,6 +1054,9 @@ else
   panel_style=0
   backdrop_style=5
   backdrop_image=true
+  panel_alpha=1
+  shadows=false
+  term_darkness=1.0
 fi
 
 # Aplicar xfconf con la sesión cerrada no es fiable: xfconfd vive en un bus
@@ -1059,7 +1079,10 @@ xfconf-query -c xfce4-panel -p /panels/panel-1/size -t int -s $panel_size --crea
 xfconf-query -c xfce4-panel -p /panels/panel-1/background-style -t int -s $panel_style --create
 xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba \\
   -t double -t double -t double -t double \\
-  -s 0.1176 -s 0.1176 -s 0.1804 -s 1 --create
+  -s 0.1176 -s 0.1176 -s 0.1804 -s $panel_alpha --create
+xfconf-query -c xfwm4 -p /general/show_frame_shadow -t bool -s $shadows --create
+xfconf-query -c xfwm4 -p /general/show_popup_shadow -t bool -s $shadows --create
+xfconf-query -c xfwm4 -p /general/show_dock_shadow -t bool -s $shadows --create
 
 # El fondo se define por monitor, y segun la version de xfdesktop la ruta
 # lleva o no un nivel de espacio de trabajo. Termux:X11 llega a registrar

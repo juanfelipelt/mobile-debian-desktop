@@ -2,7 +2,7 @@
 
 Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**, configurado para el Samsung Galaxy S25 Ultra y otros equipos ARM64.
 
-La versión 0.10 mantiene la arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Sobre esa base, la 0.7 corrigió el arranque gráfico que terminaba en pantalla negra, la 0.8 añadió el perfil de bajo consumo para equipos con poca RAM, la 0.9 el tema Catppuccin Mocha y la 0.10 la distribución de teclado y las traducciones de Chromium.
+La versión 0.11 mantiene la arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Sobre esa base, la 0.7 corrigió el arranque gráfico que terminaba en pantalla negra, la 0.8 añadió el perfil de bajo consumo para equipos con poca RAM, la 0.9 el tema Catppuccin Mocha la 0.10 la distribución de teclado y las traducciones de Chromium, y la 0.11 el compositor con el tema completo.
 
 ## Arquitectura
 
@@ -34,7 +34,7 @@ Android
 - Mesa es la versión oficial de Debian, con `libgl1-mesa-dri` instalado y `LIBGL_ALWAYS_SOFTWARE=1`, porque PRoot no expone la GPU.
 - Termux:X11 usa la ruta de dibujo normal, igual que los scripts de referencia. `-legacy-drawing` quedó desactivado por defecto porque en las versiones actuales de la aplicación produce pantalla negra.
 - La sesión arranca con `startxfce4`, no con `xfce4-session` directamente, para que se inicien xfsettingsd, xfwm4, xfdesktop y el panel.
-- El compositor de XFCE viene desactivado y se activa por dispositivo con `X11_COMPOSITING=1`. Sin `libgl1-mesa-dri` producía pantalla negra; con él funciona, a costa de CPU. Apagado la personalización es plana y el tema cuadra los menús para que sus esquinas no se dibujen negras.
+- El compositor de XFCE viene activado. Lo que antes dejaba la pantalla negra era encenderlo sin `libgl1-mesa-dri`; con ese driver funciona, aunque todo se dibuje por CPU. Se apaga por dispositivo con `X11_COMPOSITING=0`, y entonces el tema cuadra los menús para que sus esquinas no se dibujen negras.
 - XFCE no guarda la sesión al salir.
 - Antes de abrir un servidor nuevo se le pide a la aplicación Termux:X11 que se cierre y se espera a que suelte el display, para que la ventana no quede enganchada a un servidor muerto.
 
@@ -223,17 +223,17 @@ El tema se instala en `~/.themes/Catppuccin-Mocha`, con ese nombre y no con el d
 
 Catppuccin Mocha lleva acento azul: tema GTK y decoración de ventanas desde las releases de [catppuccin/gtk](https://github.com/catppuccin/gtk), iconos Papirus-Dark, paleta oficial en la terminal, fondo liso `#1e1e2e`, panel sólido de 40 píxeles y tipografía monoespaciada JetBrains Mono, Fira Code o Cascadia Code, la primera que esté disponible.
 
-Por defecto el escritorio queda **plano**: sin transparencias, desenfoque ni sombras, porque todo eso necesita el compositor. Catppuccin aguanta bien esa restricción porque su identidad está en la paleta, no en los efectos, y el tema cuadra las esquinas de los menús para que no se dibujen con recuadros negros.
+Con el compositor activado, que es como viene, el tema mantiene lo que Catppuccin trae de fábrica: esquinas redondeadas en los menús, sombras bajo las ventanas, panel ligeramente translúcido y un punto de transparencia en la terminal.
 
-Si el equipo lo aguanta, se puede activar el compositor y recuperar sombras y esquinas redondeadas:
+Con `X11_COMPOSITING=0` todo eso se apaga y el tema se adapta: cuadra las esquinas de los menús mediante `~/.config/gtk-3.0/gtk.css`, porque sin transparencia esa zona se dibuja como recuadros negros, y deja el panel y la terminal opacos. Catppuccin aguanta bien esa variante porque su identidad está en la paleta, no en los efectos.
 
 ```bash
-X11_COMPOSITING=1 $HOME/mobile-debian.sh repair
+X11_COMPOSITING=0 $HOME/mobile-debian.sh repair
 $HOME/mobile-debian.sh theme
 $HOME/mobile-debian.sh restart
 ```
 
-El tema se adapta solo: con el compositor activo deja de cuadrar las esquinas. Todo se dibuja por CPU, así que en equipos lentos se nota.
+Todo se dibuja por CPU, así que en equipos lentos el compositor se nota.
 
 Si la descarga del tema falla, el escritorio queda en Adwaita-dark en lugar de romperse. El tema solo se descarga una vez: las aplicaciones posteriores reutilizan el que ya está en `~/.themes`.
 
