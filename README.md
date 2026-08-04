@@ -2,7 +2,7 @@
 
 Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**, configurado para el Samsung Galaxy S25 Ultra y otros equipos ARM64.
 
-La versión 0.9 mantiene la arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Sobre esa base, la 0.7 corrigió el arranque gráfico que terminaba en pantalla negra, la 0.8 añadió el perfil de bajo consumo para equipos con poca RAM y la 0.9 el tema Catppuccin Mocha.
+La versión 0.10 mantiene la arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Sobre esa base, la 0.7 corrigió el arranque gráfico que terminaba en pantalla negra, la 0.8 añadió el perfil de bajo consumo para equipos con poca RAM, la 0.9 el tema Catppuccin Mocha y la 0.10 la distribución de teclado y las traducciones de Chromium.
 
 ## Arquitectura
 
@@ -45,6 +45,8 @@ Instala manualmente:
 2. La aplicación Android Termux:X11.
 
 No mezcles instalaciones de Termux procedentes de fuentes distintas.
+
+Antes de usar el escritorio, revisa **Configuración de Termux:X11**: son ajustes de la aplicación Android que el script no puede aplicar y que hacen falta en cada dispositivo nuevo.
 
 ## Instalación limpia
 
@@ -231,16 +233,59 @@ Tres aplicaciones no siguen el tema del sistema:
 
 `theme default` devuelve XFCE a Adwaita, restaura la configuración previa de la terminal desde `~/.config/xfce4/terminal/terminalrc.previo` y deja Visual Studio Code en su tema oscuro estándar.
 
+## Configuración de Termux:X11
+
+Nada de esta sección la configura el script: son ajustes de la aplicación Android, y hay que repetirlos en cada dispositivo. Se llega a ellos desde el botón **Preferences** de la notificación persistente de Termux:X11, o desde el menú de la propia aplicación.
+
+### Prefer scancodes when possible
+
+**Actívalo.** Sin esta opción la aplicación entrega caracteres ya resueltos, X11 nunca ve la pulsación real y las teclas muertas no componen: el acento sale suelto, `t´ilde` en vez de `tílde`. Hace falta además de la distribución de teclado que aplica el script, no en su lugar.
+
+### Resolución y escala
+
+Termux:X11 expone un único modo de pantalla, así que el diálogo de Ajustes de pantalla de XFCE no sirve para cambiarlo. Se hace en **Display resolution mode** de la aplicación, con la opción personalizada.
+
+Bajar la resolución agranda toda la interfaz y además da un escritorio más fluido, porque sin GPU cada píxel se dibuja por CPU. Conviene mantener la relación de aspecto del panel para que no se deforme:
+
+| Dispositivo | Nativa | Relación | Para el doble de tamaño |
+|---|---|---|---|
+| Galaxy Tab S9 | 2560x1600 | 16:10 | 1280x800 |
+| Galaxy S25 Ultra | 3120x1440 | 19.5:9 | 1560x720 |
+
+Deja desactivada la opción de estirar la imagen, o rellenará la pantalla deformándola.
+
+### Versión de la aplicación
+
+La APK y el paquete `termux-x11-nightly` deben ser de la misma versión. `pkg upgrade` actualiza el paquete pero no la aplicación, así que la pareja se desincroniza sola con el tiempo y el resultado es pantalla negra o blanca. `doctor` compara ambas y el arranque avisa si difieren.
+
+### Dibujo heredado
+
+Lo controla el script con `X11_LEGACY_DRAWING`, no la aplicación. Está desactivado porque en las versiones actuales de Termux:X11 produce pantalla negra.
+
+### Batería y segundo plano
+
+La aplicación necesita los mismos permisos que Termux, descritos en Ajustes de Android. Si el sistema la mata, la ventana se queda en negro aunque el servidor X siga vivo.
+
+### Samsung DeX
+
+DeX dibuja su barra de ventana arriba y la barra de tareas abajo, y una aplicación no puede ocultarlas: reaparecen al acercarse a esos bordes e interrumpen el uso de XFCE. También intercepta atajos de teclado como Alt+Tab antes de que lleguen a la sesión.
+
+Dos mitigaciones: mover el panel de XFCE a un lateral, con clic derecho sobre él → Panel → Preferencias, desmarcando *Bloquear el panel*; y activar el ocultado automático de la barra de tareas en los ajustes de DeX.
+
+Fuera de DeX no ocurre ninguna de las dos cosas, así que si no dependes de un monitor externo, usar Termux:X11 en modo normal a pantalla completa sale más a cuenta.
+
 ## Teclado
 
-XFCE usa por defecto la distribución de Estados Unidos, y con ella las teclas muertas no componen: el acento sale suelto, `t´ilde` en vez de `tílde`. El script aplica `latam` en cada sesión, configurable por dispositivo:
+XFCE usa por defecto la distribución de Estados Unidos, donde el acento agudo no es tecla muerta. El script aplica `latam` en cada sesión, configurable por dispositivo:
 
 ```bash
 KEYBOARD_LAYOUT=es $HOME/mobile-debian.sh repair    # español de España
 KEYBOARD_LAYOUT= $HOME/mobile-debian.sh repair      # no tocar la distribución
 ```
 
-Si los acentos siguen sin componer, activa **"Prefer scancodes when possible"** en las preferencias de la aplicación Termux:X11. Sin esa opción la aplicación entrega caracteres ya resueltos y X11 no puede componer teclas muertas.
+Esto por sí solo no basta: hace falta también **Prefer scancodes when possible** en Termux:X11.
+
+Si los acentos tampoco funcionan en aplicaciones de Android fuera de XFCE, el problema es la distribución del teclado físico en el propio sistema, y se cambia en Ajustes → Administración general → Configuración del teclado físico.
 
 ## Ajustes de Android
 
@@ -272,7 +317,7 @@ Eso recorta el consumo de Chromium desactivando su proceso de GPU, que sin acele
 
 ## Pantalla negra
 
-La causa más frecuente es que la aplicación Termux:X11 y el paquete `termux-x11-nightly` tengan versiones distintas. `pkg upgrade` actualiza el paquete, pero la APK de Android se actualiza a mano, así que la pareja se desincroniza sola con el tiempo.
+La causa más frecuente es el desajuste de versiones entre la aplicación y el paquete que se describe en Configuración de Termux:X11.
 
 Comprueba las dos versiones:
 
