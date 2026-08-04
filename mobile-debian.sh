@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.9.2"
+VERSION="0.9.3"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -916,6 +916,30 @@ install_mocha(){
     say "Catppuccin no trae decoración de ventanas usable; se usa $wm_theme"
   fi
 
+  say "Cuadrando menús y quitando sombras"
+  mkdir -p "$HOME/.config/gtk-3.0"
+  [[ -f "$HOME/.config/gtk-3.0/gtk.css" ]] &&
+    cp -n "$HOME/.config/gtk-3.0/gtk.css" \
+          "$HOME/.config/gtk-3.0/gtk.css.previo" 2>/dev/null || true
+  cat > "$HOME/.config/gtk-3.0/gtk.css" <<'GTKCSS'
+/* Sin compositor no hay transparencia, así que las esquinas redondeadas y las
+   sombras del tema se dibujan como recuadros negros alrededor de los menús.
+   Cuadrarlas es la única forma de evitarlo sin encender el compositor. */
+menu, .menu, .context-menu,
+popover, popover.background,
+window.popup, window.popup decoration,
+.csd popup decoration,
+tooltip, tooltip.background {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+decoration, decoration:backdrop {
+  border-radius: 0;
+  box-shadow: none;
+}
+GTKCSS
+
   say "Aplicando la paleta a la terminal"
   [[ -f "$HOME/.config/xfce4/terminal/terminalrc" ]] &&
     cp -n "$HOME/.config/xfce4/terminal/terminalrc" \
@@ -945,6 +969,11 @@ restore_default(){
   gtk_theme="Adwaita"
   wm_theme="Default"
   say "Restaurando el aspecto original de XFCE"
+  if [[ -f "$HOME/.config/gtk-3.0/gtk.css.previo" ]]; then
+    mv -f "$HOME/.config/gtk-3.0/gtk.css.previo" "$HOME/.config/gtk-3.0/gtk.css"
+  else
+    rm -f "$HOME/.config/gtk-3.0/gtk.css"
+  fi
   if [[ -f "$HOME/.config/xfce4/terminal/terminalrc.previo" ]]; then
     mv -f "$HOME/.config/xfce4/terminal/terminalrc.previo" \
           "$HOME/.config/xfce4/terminal/terminalrc"
@@ -993,10 +1022,18 @@ xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba \\
   -t double -t double -t double -t double \\
   -s 0.1176 -s 0.1176 -s 0.1804 -s 1 --create
 
-# El fondo se define por monitor y espacio de trabajo, y el nombre del monitor
-# depende de Termux:X11, así que se recorren los que existan.
-for prop in \$(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -E '/workspace[0-9]+/last-image\$' || true); do
-  base="\${prop%/last-image}"
+# El fondo se define por monitor y espacio de trabajo. xfdesktop tarda un
+# momento en registrar esas propiedades al iniciar la sesión, y el nombre del
+# monitor lo pone Termux:X11, así que se espera y luego se buscan. Si aún no
+# existen, se deduce el nombre del monitor con xrandr y se crean.
+sleep 6
+bases="\$(xfconf-query -c xfce4-desktop -l 2>/dev/null |
+  grep -E '/workspace[0-9]+/last-image\$' | sed 's#/last-image\$##' || true)"
+if [[ -z "\$bases" ]]; then
+  monitor="\$(xrandr 2>/dev/null | awk '/ connected/{print \$1; exit}')"
+  [[ -n "\$monitor" ]] && bases="/backdrop/screen0/monitor\$monitor/workspace0"
+fi
+for base in \$bases; do
   xfconf-query -c xfce4-desktop -p "\$base/image-style" -t int -s $backdrop_style --create
   xfconf-query -c xfce4-desktop -p "\$base/color-style" -t int -s 0 --create
   xfconf-query -c xfce4-desktop -p "\$base/rgba1" \\
