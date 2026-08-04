@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.9.4"
+VERSION="0.10.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -11,7 +11,7 @@ CONFIG_VERSION_CURRENT=2
 CONFIG_KEYS=(
   DISPLAY_NUM LOCALE LANGUAGE_VALUE TIMEZONE
   X11_LEGACY_DRAWING X11_FORCE_BGRA X11_SOFTWARE_GL LOW_MEMORY
-  DESKTOP_THEME STORAGE_SOURCE
+  DESKTOP_THEME KEYBOARD_LAYOUT KEYBOARD_VARIANT STORAGE_SOURCE
 )
 ENV_OVERRIDES=()
 for config_key in "${CONFIG_KEYS[@]}"; do
@@ -37,6 +37,10 @@ X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
 LOW_MEMORY="${LOW_MEMORY:-0}"
 # Aspecto del escritorio: mocha o default.
 DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
+# Distribución de teclado de X11. latam cubre el español de Latinoamérica;
+# usa es para el de España, o vacío para no tocar nada.
+KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT:-latam}"
+KEYBOARD_VARIANT="${KEYBOARD_VARIANT:-}"
 
 INSTALL_DEV_STACK="${INSTALL_DEV_STACK:-1}"
 INSTALL_OFFICE="${INSTALL_OFFICE:-1}"
@@ -113,6 +117,8 @@ load_config(){
   X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
   LOW_MEMORY="${LOW_MEMORY:-0}"
   DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
+  KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT-latam}"
+  KEYBOARD_VARIANT="${KEYBOARD_VARIANT-}"
   STORAGE_SOURCE="${STORAGE_SOURCE:-}"
 }
 
@@ -217,6 +223,8 @@ AI_FORCE="${11}"
 STORAGE_ENABLED="${12}"
 INSTALL_GRAPHICS="${13:-0}"
 LOW_MEMORY="${14:-0}"
+KEYBOARD_LAYOUT="${15:-}"
+KEYBOARD_VARIANT="${16:-}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -234,7 +242,7 @@ packages=(
   mesa-utils libgl1-mesa-dri libglx-mesa0
   fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
 )
-[[ "$INSTALL_CHROMIUM" == 1 ]] && packages+=(chromium)
+[[ "$INSTALL_CHROMIUM" == 1 ]] && packages+=(chromium chromium-l10n)
 [[ "$INSTALL_OFFICE" == 1 ]] && packages+=(libreoffice libreoffice-l10n-es hunspell-es)
 [[ "$INSTALL_MEDIA" == 1 ]] && packages+=(vlc mpv ffmpeg)
 [[ "$INSTALL_GRAPHICS" == 1 ]] && packages+=(gimp)
@@ -461,7 +469,7 @@ for desktop_file in \
 done
 chmod +x "$USER_HOME/Desktop/"*.desktop 2>/dev/null || true
 
-cat > "$USER_HOME/.local/bin/mobile-xfce-fixups" <<'FIX'
+cat > "$USER_HOME/.local/bin/mobile-xfce-fixups" <<FIX
 #!/usr/bin/env bash
 set -u
 sleep 3
@@ -469,7 +477,15 @@ xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create >/de
 # Sin esto XFCE guarda la sesión al salir y restaura una sesión rota en el
 # arranque siguiente, que se ve como una pantalla negra sin panel.
 xfconf-query -c xfce4-session -p /general/SaveOnExit -t bool -s false --create >/dev/null 2>&1 || true
-xfconf-query -c xsettings -p /Gtk/FontName -t string -s 'Noto Sans 10' --create >/dev/null 2>&1 || true
+
+# Distribución de teclado. Sin ella X usa la de Estados Unidos y las teclas
+# muertas no componen: el acento sale suelto en vez de montarse sobre la vocal.
+if [[ -n "$KEYBOARD_LAYOUT" ]]; then
+  xfconf-query -c keyboard-layout -p /Default/XkbDisable -t bool -s false --create >/dev/null 2>&1 || true
+  xfconf-query -c keyboard-layout -p /Default/XkbLayout -t string -s '$KEYBOARD_LAYOUT' --create >/dev/null 2>&1 || true
+  xfconf-query -c keyboard-layout -p /Default/XkbVariant -t string -s '$KEYBOARD_VARIANT' --create >/dev/null 2>&1 || true
+  setxkbmap -layout '$KEYBOARD_LAYOUT' ${KEYBOARD_VARIANT:+-variant '$KEYBOARD_VARIANT'} >/dev/null 2>&1 || true
+fi
 FIX
 chmod 0755 "$USER_HOME/.local/bin/mobile-xfce-fixups"
 
@@ -525,7 +541,7 @@ configure_debian(){
       "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
       "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS" \
-      "$LOW_MEMORY"
+      "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT"
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"
@@ -1179,6 +1195,7 @@ status(){
   printf 'Termux:X11 aplicación: %s\n' "$(x11_apk_version || true)"
   printf 'GL por software: %s\n' "$X11_SOFTWARE_GL"
   printf 'Tema del escritorio: %s\n' "$DESKTOP_THEME"
+  printf 'Teclado: %s\n' "${KEYBOARD_LAYOUT:-sin tocar}"
   printf 'GPU experimental: desactivada\n'
   printf 'RAM total: %s\n' "$([[ -n "$ram" ]] && echo "$ram MB" || echo desconocida)"
   printf 'Perfil de bajo consumo: %s\n' \

@@ -78,7 +78,7 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 
 ### Navegación y desarrollo
 
-- Chromium de Debian ARM64.
+- Chromium de Debian ARM64, con sus traducciones.
 - Visual Studio Code oficial ARM64 mediante el repositorio de Microsoft.
 - Git.
 - Python 3, pip y venv.
@@ -182,6 +182,8 @@ X11_FORCE_BGRA
 X11_SOFTWARE_GL
 LOW_MEMORY
 DESKTOP_THEME
+KEYBOARD_LAYOUT
+KEYBOARD_VARIANT
 INSTALL_DEV_STACK
 INSTALL_OFFICE
 INSTALL_MEDIA
@@ -228,6 +230,17 @@ Tres aplicaciones no siguen el tema del sistema:
 - **Chromium**: solo lo sigue en parte. El resto se ajusta desde sus propios temas.
 
 `theme default` devuelve XFCE a Adwaita, restaura la configuración previa de la terminal desde `~/.config/xfce4/terminal/terminalrc.previo` y deja Visual Studio Code en su tema oscuro estándar.
+
+## Teclado
+
+XFCE usa por defecto la distribución de Estados Unidos, y con ella las teclas muertas no componen: el acento sale suelto, `t´ilde` en vez de `tílde`. El script aplica `latam` en cada sesión, configurable por dispositivo:
+
+```bash
+KEYBOARD_LAYOUT=es $HOME/mobile-debian.sh repair    # español de España
+KEYBOARD_LAYOUT= $HOME/mobile-debian.sh repair      # no tocar la distribución
+```
+
+Si los acentos siguen sin componer, activa **"Prefer scancodes when possible"** en las preferencias de la aplicación Termux:X11. Sin esa opción la aplicación entrega caracteres ya resueltos y X11 no puede componer teclas muertas.
 
 ## Ajustes de Android
 
