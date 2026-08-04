@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.10.1"
+VERSION="0.11.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -11,7 +11,7 @@ CONFIG_VERSION_CURRENT=2
 CONFIG_KEYS=(
   DISPLAY_NUM LOCALE LANGUAGE_VALUE TIMEZONE
   X11_LEGACY_DRAWING X11_FORCE_BGRA X11_SOFTWARE_GL LOW_MEMORY
-  DESKTOP_THEME KEYBOARD_LAYOUT KEYBOARD_VARIANT STORAGE_SOURCE
+  DESKTOP_THEME X11_COMPOSITING KEYBOARD_LAYOUT KEYBOARD_VARIANT STORAGE_SOURCE
 )
 ENV_OVERRIDES=()
 for config_key in "${CONFIG_KEYS[@]}"; do
@@ -39,6 +39,10 @@ LOW_MEMORY="${LOW_MEMORY:-0}"
 DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
 # Distribución de teclado de X11. latam cubre el español de Latinoamérica;
 # usa es para el de España, o vacío para no tocar nada.
+# El compositor da transparencias, sombras y esquinas redondeadas, pero dibuja
+# por CPU y fue lo que dejó la pantalla negra cuando faltaba el driver DRI.
+# Se activa por dispositivo, después de comprobar que ese equipo lo aguanta.
+X11_COMPOSITING="${X11_COMPOSITING:-0}"
 KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT:-latam}"
 KEYBOARD_VARIANT="${KEYBOARD_VARIANT:-}"
 
@@ -117,6 +121,7 @@ load_config(){
   X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
   LOW_MEMORY="${LOW_MEMORY:-0}"
   DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
+  X11_COMPOSITING="${X11_COMPOSITING:-0}"
   KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT-latam}"
   KEYBOARD_VARIANT="${KEYBOARD_VARIANT-}"
   STORAGE_SOURCE="${STORAGE_SOURCE:-}"
@@ -225,6 +230,7 @@ INSTALL_GRAPHICS="${13:-0}"
 LOW_MEMORY="${14:-0}"
 KEYBOARD_LAYOUT="${15:-}"
 KEYBOARD_VARIANT="${16:-}"
+COMPOSITING="${17:-false}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -474,7 +480,7 @@ cat > "$USER_HOME/.local/bin/mobile-xfce-fixups" <<FIX
 #!/usr/bin/env bash
 set -u
 sleep 3
-xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create >/dev/null 2>&1 || true
+xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s $COMPOSITING --create >/dev/null 2>&1 || true
 # Sin esto XFCE guarda la sesión al salir y restaura una sesión rota en el
 # arranque siguiente, que se ve como una pantalla negra sin panel.
 xfconf-query -c xfce4-session -p /general/SaveOnExit -t bool -s false --create >/dev/null 2>&1 || true
@@ -542,7 +548,8 @@ configure_debian(){
       "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
       "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS" \
-      "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT"
+      "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT" \
+      "$([[ "$X11_COMPOSITING" == 1 ]] && echo true || echo false)"
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"
@@ -841,6 +848,7 @@ set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 LINUX_USER="$1"
 CHOICE="${2:-mocha}"
+COMPOSITING="${3:-false}"
 
 say(){ printf '[Tema] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -864,6 +872,7 @@ cat > /tmp/mobile-debian-theme-user.sh <<'THEME_USER'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 CHOICE="${1:-mocha}"
+COMPOSITING="${2:-false}"
 
 # El paquete oficial se llama catppuccin-mocha-blue-standard+default, que es
 # ilegible en el selector de Xfce, así que se renombra al desempaquetar.
@@ -933,15 +942,25 @@ install_mocha(){
     say "Catppuccin no trae decoración de ventanas usable; se usa $wm_theme"
   fi
 
-  say "Cuadrando menús y quitando sombras"
+  # Las esquinas redondeadas y las sombras del tema necesitan transparencia.
+  # Con compositor se ven como deben; sin él, esa zona se pinta de negro y hay
+  # que cuadrarlas.
   mkdir -p "$HOME/.config/gtk-3.0"
-  [[ -f "$HOME/.config/gtk-3.0/gtk.css" ]] &&
-    cp -n "$HOME/.config/gtk-3.0/gtk.css" \
-          "$HOME/.config/gtk-3.0/gtk.css.previo" 2>/dev/null || true
-  cat > "$HOME/.config/gtk-3.0/gtk.css" <<'GTKCSS'
+  if [[ "$COMPOSITING" == true ]]; then
+    say "Compositor activo: se conservan esquinas redondeadas y sombras"
+    if [[ -f "$HOME/.config/gtk-3.0/gtk.css.previo" ]]; then
+      mv -f "$HOME/.config/gtk-3.0/gtk.css.previo" "$HOME/.config/gtk-3.0/gtk.css"
+    else
+      rm -f "$HOME/.config/gtk-3.0/gtk.css"
+    fi
+  else
+    say "Sin compositor: cuadrando menús para evitar los bordes negros"
+    [[ -f "$HOME/.config/gtk-3.0/gtk.css" ]] &&
+      cp -n "$HOME/.config/gtk-3.0/gtk.css" \
+            "$HOME/.config/gtk-3.0/gtk.css.previo" 2>/dev/null || true
+    cat > "$HOME/.config/gtk-3.0/gtk.css" <<'GTKCSS'
 /* Sin compositor no hay transparencia, así que las esquinas redondeadas y las
-   sombras del tema se dibujan como recuadros negros alrededor de los menús.
-   Cuadrarlas es la única forma de evitarlo sin encender el compositor. */
+   sombras del tema se dibujan como recuadros negros alrededor de los menús. */
 menu, .menu, .context-menu,
 popover, popover.background,
 window.popup, window.popup decoration,
@@ -956,6 +975,7 @@ decoration, decoration:backdrop {
   box-shadow: none;
 }
 GTKCSS
+  fi
 
   say "Aplicando la paleta a la terminal"
   [[ -f "$HOME/.config/xfce4/terminal/terminalrc" ]] &&
@@ -1034,7 +1054,7 @@ xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s '$mono_font' --
 xfconf-query -c xsettings -p /Gtk/CursorThemeSize -t int -s 32 --create
 xfconf-query -c xfwm4 -p /general/theme -t string -s '$wm_theme' --create
 xfconf-query -c xfwm4 -p /general/title_font -t string -s '$title_font' --create
-xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create
+xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s $COMPOSITING --create
 xfconf-query -c xfce4-panel -p /panels/panel-1/size -t int -s $panel_size --create
 xfconf-query -c xfce4-panel -p /panels/panel-1/background-style -t int -s $panel_style --create
 xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba \\
@@ -1099,7 +1119,7 @@ THEME_USER
 
 chmod 0755 /tmp/mobile-debian-theme-user.sh
 chown "$LINUX_USER:$LINUX_USER" /tmp/mobile-debian-theme-user.sh
-su - "$LINUX_USER" -c "bash /tmp/mobile-debian-theme-user.sh '$CHOICE'"
+su - "$LINUX_USER" -c "bash /tmp/mobile-debian-theme-user.sh '$CHOICE' '$COMPOSITING'"
 THEME_ROOT
   chmod 0755 "$TMPDIR/mobile-debian-theme.sh"
 }
@@ -1107,7 +1127,8 @@ THEME_ROOT
 theme_apply_inner(){
   local choice="$1"
   write_theme_script
-  distro_login "" /bin/bash /tmp/mobile-debian-theme.sh "$LINUX_USER" "$choice"
+  distro_login "" /bin/bash /tmp/mobile-debian-theme.sh "$LINUX_USER" "$choice" \
+    "$([[ "$X11_COMPOSITING" == 1 ]] && echo true || echo false)"
 }
 
 apply_theme(){
@@ -1197,6 +1218,7 @@ status(){
   printf 'GL por software: %s\n' "$X11_SOFTWARE_GL"
   printf 'Tema del escritorio: %s\n' "$DESKTOP_THEME"
   printf 'Teclado: %s\n' "${KEYBOARD_LAYOUT:-sin tocar}"
+  printf 'Compositor: %s\n' "$([[ "$X11_COMPOSITING" == 1 ]] && echo activado || echo desactivado)"
   printf 'GPU experimental: desactivada\n'
   printf 'RAM total: %s\n' "$([[ -n "$ram" ]] && echo "$ram MB" || echo desconocida)"
   printf 'Perfil de bajo consumo: %s\n' \

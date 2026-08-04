@@ -34,7 +34,8 @@ Android
 - Mesa es la versión oficial de Debian, con `libgl1-mesa-dri` instalado y `LIBGL_ALWAYS_SOFTWARE=1`, porque PRoot no expone la GPU.
 - Termux:X11 usa la ruta de dibujo normal, igual que los scripts de referencia. `-legacy-drawing` quedó desactivado por defecto porque en las versiones actuales de la aplicación produce pantalla negra.
 - La sesión arranca con `startxfce4`, no con `xfce4-session` directamente, para que se inicien xfsettingsd, xfwm4, xfdesktop y el panel.
-- El compositor de XFCE permanece desactivado y XFCE no guarda la sesión al salir. Por eso la personalización es plana: sin transparencias ni sombras.
+- El compositor de XFCE viene desactivado y se activa por dispositivo con `X11_COMPOSITING=1`. Sin `libgl1-mesa-dri` producía pantalla negra; con él funciona, a costa de CPU. Apagado la personalización es plana y el tema cuadra los menús para que sus esquinas no se dibujen negras.
+- XFCE no guarda la sesión al salir.
 - Antes de abrir un servidor nuevo se le pide a la aplicación Termux:X11 que se cierre y se espera a que suelte el display, para que la ventana no quede enganchada a un servidor muerto.
 
 ## Requisitos
@@ -182,6 +183,7 @@ TIMEZONE
 X11_LEGACY_DRAWING
 X11_FORCE_BGRA
 X11_SOFTWARE_GL
+X11_COMPOSITING
 LOW_MEMORY
 DESKTOP_THEME
 KEYBOARD_LAYOUT
@@ -221,7 +223,17 @@ El tema se instala en `~/.themes/Catppuccin-Mocha`, con ese nombre y no con el d
 
 Catppuccin Mocha lleva acento azul: tema GTK y decoración de ventanas desde las releases de [catppuccin/gtk](https://github.com/catppuccin/gtk), iconos Papirus-Dark, paleta oficial en la terminal, fondo liso `#1e1e2e`, panel sólido de 40 píxeles y tipografía monoespaciada JetBrains Mono, Fira Code o Cascadia Code, la primera que esté disponible.
 
-El escritorio queda **plano a propósito**: sin transparencias, desenfoque ni sombras, porque todo eso necesita el compositor y el compositor produce pantalla negra en este montaje. Catppuccin funciona bien con esa restricción porque su identidad está en la paleta, no en los efectos.
+Por defecto el escritorio queda **plano**: sin transparencias, desenfoque ni sombras, porque todo eso necesita el compositor. Catppuccin aguanta bien esa restricción porque su identidad está en la paleta, no en los efectos, y el tema cuadra las esquinas de los menús para que no se dibujen con recuadros negros.
+
+Si el equipo lo aguanta, se puede activar el compositor y recuperar sombras y esquinas redondeadas:
+
+```bash
+X11_COMPOSITING=1 $HOME/mobile-debian.sh repair
+$HOME/mobile-debian.sh theme
+$HOME/mobile-debian.sh restart
+```
+
+El tema se adapta solo: con el compositor activo deja de cuadrar las esquinas. Todo se dibuja por CPU, así que en equipos lentos se nota.
 
 Si la descarga del tema falla, el escritorio queda en Adwaita-dark en lugar de romperse. El tema solo se descarga una vez: las aplicaciones posteriores reutilizan el que ya está en `~/.themes`.
 
