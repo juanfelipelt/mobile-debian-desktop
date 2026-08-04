@@ -1,12 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.5.0"
+VERSION="0.6.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 DISTRO="${DISTRO:-debian}"
 LINUX_USER="${LINUX_USER:-felipe}"
 DISPLAY_NUM="${DISPLAY_NUM:-:1}"
 LOCALE="${LOCALE:-es_CO.UTF-8}"
+LANGUAGE_VALUE="${LANGUAGE_VALUE:-es_CO:es}"
+TIMEZONE="${TIMEZONE:-America/Bogota}"
 X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-1}"
 X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
 
@@ -16,19 +18,17 @@ INSTALL_MEDIA="${INSTALL_MEDIA:-1}"
 INSTALL_VSCODE="${INSTALL_VSCODE:-1}"
 INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-1}"
 INSTALL_AI_CLI="${INSTALL_AI_CLI:-1}"
-INSTALL_GPU="${INSTALL_GPU:-0}"
+ENABLE_ANDROID_STORAGE="${ENABLE_ANDROID_STORAGE:-1}"
 
 STATE_DIR="$HOME/.config/mobile-debian"
 STATE_FILE="$STATE_DIR/installed"
 CONFIG_FILE="$STATE_DIR/config"
 X11_PID_FILE="$STATE_DIR/termux-x11.pid"
-APP_BRIDGE_PID_FILE="$STATE_DIR/app-bridge.pid"
-APP_BRIDGE_DIR="$TMPDIR/mobile-debian-app-bridge"
 WAKE_LOCK_FILE="$STATE_DIR/wake-lock"
 LOG_DIR="$HOME/.local/state/mobile-debian"
 X11_LOG="$LOG_DIR/termux-x11.log"
 XFCE_LOG="$LOG_DIR/xfce.log"
-HOST_APP_LOG="$LOG_DIR/host-apps.log"
+STORAGE_SOURCE="${STORAGE_SOURCE:-}"
 mkdir -p "$STATE_DIR" "$LOG_DIR"
 
 log(){ printf '\033[1;36m[Mobile Debian]\033[0m %s\n' "$*"; }
@@ -58,11 +58,36 @@ installed(){
   return 1
 }
 
+load_config(){
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+  fi
+  X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-1}"
+  X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
+  STORAGE_SOURCE="${STORAGE_SOURCE:-}"
+}
+
+save_config(){
+  cat > "$CONFIG_FILE" <<EOF_CONFIG
+DISPLAY_NUM=$DISPLAY_NUM
+LOCALE=$LOCALE
+LANGUAGE_VALUE=$LANGUAGE_VALUE
+TIMEZONE=$TIMEZONE
+X11_LEGACY_DRAWING=$X11_LEGACY_DRAWING
+X11_FORCE_BGRA=$X11_FORCE_BGRA
+STORAGE_SOURCE=$STORAGE_SOURCE
+EOF_CONFIG
+}
+
 acquire_wake_lock(){
   if command -v termux-wake-lock >/dev/null 2>&1; then
-    termux-wake-lock >/dev/null 2>&1 || warn "No se pudo activar el wake-lock."
-    date -Iseconds > "$WAKE_LOCK_FILE"
-    ok "Wake-lock activado"
+    if termux-wake-lock >/dev/null 2>&1; then
+      date -Iseconds > "$WAKE_LOCK_FILE"
+      ok "Wake-lock activado"
+    else
+      warn "No se pudo activar el wake-lock."
+    fi
   fi
 }
 
@@ -72,26 +97,40 @@ release_wake_lock(){
   rm -f "$WAKE_LOCK_FILE"
 }
 
-host_apps(){
-  local -a apps=()
-  pkg install -y x11-repo util-linux
-  pkg update -y
-  [[ "$INSTALL_CHROMIUM" == 1 ]] && apps+=(chromium)
-  [[ "$INSTALL_VSCODE" == 1 ]] && apps+=(code-oss)
-  if [[ ${#apps[@]} -gt 0 ]]; then
-    log "Instalando aplicaciones gráficas nativas de Termux: ${apps[*]}"
-    pkg install -y "${apps[@]}"
-  fi
-}
-
 host_packages(){
-  log "Actualizando Termux"
+  log "Actualizando Termux e instalando componentes base"
   pkg update -y
   pkg upgrade -y
   pkg install -y x11-repo
   pkg update -y
-  pkg install -y termux-x11-nightly pulseaudio proot-distro curl wget git jq tar gzip coreutils procps util-linux
-  host_apps
+  pkg install -y \
+    termux-x11-nightly pulseaudio proot-distro \
+    curl wget git jq tar gzip coreutils procps psmisc
+}
+
+setup_android_storage(){
+  [[ "$ENABLE_ANDROID_STORAGE" == 1 ]] || return 0
+  command -v termux-setup-storage >/dev/null 2>&1 ||
+    die "No se encontró termux-setup-storage. Actualiza Termux desde GitHub o F-Droid."
+
+  if [[ ! -d "$HOME/storage/shared" ]]; then
+    log "Solicitando acceso al almacenamiento de Android"
+    termux-setup-storage
+    log "Acepta el permiso de archivos que muestra Android"
+  fi
+
+  for _ in $(seq 1 120); do
+    [[ -d "$HOME/storage/shared" ]] && break
+    sleep 1
+  done
+
+  [[ -d "$HOME/storage/shared" ]] ||
+    die "No se concedió el acceso al almacenamiento. Abre los permisos de Termux y vuelve a ejecutar."
+
+  STORAGE_SOURCE="$(readlink -f "$HOME/storage/shared" 2>/dev/null || true)"
+  [[ -n "$STORAGE_SOURCE" && -d "$STORAGE_SOURCE" ]] ||
+    die "No se pudo resolver la ruta del almacenamiento compartido."
+  ok "Almacenamiento Android disponible en $STORAGE_SOURCE"
 }
 
 ensure_debian(){
@@ -103,97 +142,98 @@ ensure_debian(){
   fi
 }
 
+distro_login(){
+  local user="$1"
+  shift
+  local -a args=(login "$DISTRO" --shared-tmp)
+  if [[ -n "${STORAGE_SOURCE:-}" && -d "$STORAGE_SOURCE" ]]; then
+    args+=(--bind "$STORAGE_SOURCE:/mnt/android")
+  fi
+  [[ -n "$user" ]] && args+=(--user "$user")
+  proot-distro "${args[@]}" -- "$@"
+}
+
 write_debian_configurator(){
   cat > "$TMPDIR/mobile-debian-configure.sh" <<'DEBIAN'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-MODE="$1"
-LINUX_USER="$2"
-LOCALE="$3"
-INSTALL_DEV_STACK="$4"
-INSTALL_OFFICE="$5"
-INSTALL_MEDIA="$6"
-INSTALL_VSCODE="$7"
-INSTALL_CHROMIUM="$8"
-INSTALL_AI_CLI="$9"
-INSTALL_GPU="${10}"
+LINUX_USER="$1"
+LOCALE="$2"
+LANGUAGE_VALUE="$3"
+TIMEZONE="$4"
+INSTALL_DEV_STACK="$5"
+INSTALL_OFFICE="$6"
+INSTALL_MEDIA="$7"
+INSTALL_VSCODE="$8"
+INSTALL_CHROMIUM="$9"
+INSTALL_AI_CLI="${10}"
 AI_FORCE="${11}"
-GPU_FORCE="${12}"
-HOST_HAS_KGSL="${13}"
+STORAGE_ENABLED="${12}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
 die(){ printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
-# Las aplicaciones Chromium/Electron se ejecutan nativamente en Termux.
-# Elimina repositorios y paquetes antiguos que se ejecutaban dentro de PRoot.
-rm -f /etc/apt/sources.list.d/vscode.sources \
-      /etc/apt/sources.list.d/vscode.list \
-      /usr/share/keyrings/microsoft.gpg
+say "Actualizando Debian"
+apt-get update
+apt-get upgrade -y
 
-if [[ "$MODE" != apps-only ]]; then
-  say "Actualizando paquetes"
-  apt-get update
-  apt-get dist-upgrade -y
+packages=(
+  sudo locales tzdata ca-certificates curl wget gnupg jq file xz-utils procps psmisc
+  dbus-x11 xauth x11-xserver-utils xdg-utils xdg-user-dirs xdg-user-dirs-gtk desktop-base
+  xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd
+  thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs gvfs-backends pavucontrol
+  mesa-utils
+  fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
+)
+[[ "$INSTALL_CHROMIUM" == 1 ]] && packages+=(chromium)
+[[ "$INSTALL_OFFICE" == 1 ]] && packages+=(libreoffice libreoffice-l10n-es hunspell-es)
+[[ "$INSTALL_MEDIA" == 1 ]] && packages+=(vlc mpv ffmpeg)
+[[ "$INSTALL_DEV_STACK" == 1 ]] && packages+=(git build-essential pkg-config python3 python3-pip python3-venv nodejs npm)
 
-  packages=(
-    sudo locales tzdata ca-certificates curl wget gnupg jq file xz-utils
-    dbus-x11 xauth x11-xserver-utils xdg-utils desktop-base
-    xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd
-    thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs pavucontrol
-    mesa-utils vulkan-tools
-    libegl-mesa0 libgbm1 libgl1-mesa-dri libglx-mesa0 mesa-libgallium mesa-vulkan-drivers
-    fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
-  )
-  [[ "$INSTALL_OFFICE" == 1 ]] && packages+=(libreoffice-writer libreoffice-l10n-es hunspell-es)
-  [[ "$INSTALL_MEDIA" == 1 ]] && packages+=(vlc mpv ffmpeg)
-  [[ "$INSTALL_DEV_STACK" == 1 ]] && packages+=(git build-essential pkg-config python3 python3-pip python3-venv nodejs npm)
+say "Instalando XFCE y aplicaciones"
+apt-get install -y --no-install-recommends "${packages[@]}"
 
-  say "Instalando y reparando XFCE y aplicaciones"
-  apt-get install -y --no-install-recommends "${packages[@]}"
-
-  if ! grep -q "^${LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-    sed -i "s/^# *${LOCALE} UTF-8/${LOCALE} UTF-8/" /etc/locale.gen || true
-  fi
-  locale-gen >/dev/null 2>&1 || true
-  update-locale LANG="$LOCALE" LC_ALL="$LOCALE" >/dev/null 2>&1 || true
-
-  if ! id "$LINUX_USER" >/dev/null 2>&1; then
-    adduser --disabled-password --gecos '' "$LINUX_USER"
-  fi
-  usermod -aG sudo,audio,video "$LINUX_USER" || true
-  printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$LINUX_USER" > "/etc/sudoers.d/90-$LINUX_USER"
-  chmod 0440 "/etc/sudoers.d/90-$LINUX_USER"
+if grep -q "^# *${LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
+  sed -i "s/^# *${LOCALE} UTF-8/${LOCALE} UTF-8/" /etc/locale.gen
+elif ! grep -q "^${LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
+  printf '%s UTF-8\n' "$LOCALE" >> /etc/locale.gen
 fi
+locale-gen
+update-locale LANG="$LOCALE" LANGUAGE="$LANGUAGE_VALUE" LC_ALL="$LOCALE"
+ln -snf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+printf '%s\n' "$TIMEZONE" > /etc/timezone
+dpkg-reconfigure -f noninteractive tzdata >/dev/null 2>&1 || true
 
-id "$LINUX_USER" >/dev/null 2>&1 || die "No existe el usuario $LINUX_USER."
+if ! id "$LINUX_USER" >/dev/null 2>&1; then
+  adduser --disabled-password --gecos '' "$LINUX_USER"
+fi
+usermod -aG sudo,audio,video "$LINUX_USER" || true
+printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$LINUX_USER" > "/etc/sudoers.d/90-$LINUX_USER"
+chmod 0440 "/etc/sudoers.d/90-$LINUX_USER"
 USER_HOME="$(getent passwd "$LINUX_USER" | cut -d: -f6)"
 
-legacy_packages=()
-for package_name in code chromium chromium-common; do
-  dpkg-query -W -f='${db:Status-Abbrev}' "$package_name" 2>/dev/null | grep -q '^ii ' &&
-    legacy_packages+=("$package_name")
-done
-if [[ ${#legacy_packages[@]} -gt 0 ]]; then
-  say "Eliminando aplicaciones gráficas antiguas de Debian: ${legacy_packages[*]}"
-  apt-get purge -y "${legacy_packages[@]}"
-fi
-
-if [[ "$MODE" == apps-only ]]; then
-  say "Restaurando Mesa oficial de Debian"
+if [[ "$INSTALL_VSCODE" == 1 ]]; then
+  say "Instalando Visual Studio Code oficial ARM64"
+  install -d -m755 /etc/apt/keyrings /etc/apt/sources.list.d
+  wget -qO- https://packages.microsoft.com/keys/microsoft.asc |
+    gpg --dearmor --yes -o /etc/apt/keyrings/packages.microsoft.gpg
+  chmod 0644 /etc/apt/keyrings/packages.microsoft.gpg
+  cat > /etc/apt/sources.list.d/vscode.sources <<'SRC'
+Types: deb
+URIs: https://packages.microsoft.com/repos/code
+Suites: stable
+Components: main
+Architectures: arm64
+Signed-By: /etc/apt/keyrings/packages.microsoft.gpg
+SRC
   apt-get update
-  apt-get install --reinstall -y \
-    libegl-mesa0 libgbm1 libgl1-mesa-dri libglx-mesa0 \
-    mesa-libgallium mesa-vulkan-drivers
-fi
-if [[ "$INSTALL_GPU" != 1 ]]; then
-  printf 'software\n' > /etc/mobile-debian-gpu
+  apt-get install -y code
 fi
 
 install_ai(){
-  [[ "$MODE" != apps-only ]] || return 0
   [[ "$INSTALL_AI_CLI" == 1 ]] || return 0
   cat > /tmp/mobile-debian-ai.sh <<'AI'
 #!/usr/bin/env bash
@@ -206,19 +246,19 @@ grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.profile" ||
   printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.profile"
 
 if [[ "$force" == 1 ]] || ! command -v claude >/dev/null 2>&1; then
-  echo "Instalando/actualizando Claude Code"
+  echo "Instalando Claude Code"
   curl -fsSL https://claude.ai/install.sh -o "$HOME/.cache/mobile-debian/installers/claude-install.sh"
   bash "$HOME/.cache/mobile-debian/installers/claude-install.sh"
 else
-  echo "Claude Code ya está instalado; no se reinstala."
+  echo "Claude Code ya está instalado."
 fi
 
 if [[ "$force" == 1 ]] || ! command -v codex >/dev/null 2>&1; then
-  echo "Instalando/actualizando Codex CLI"
+  echo "Instalando Codex CLI"
   curl -fsSL https://chatgpt.com/codex/install.sh -o "$HOME/.cache/mobile-debian/installers/codex-install.sh"
   CODEX_NON_INTERACTIVE=true sh "$HOME/.cache/mobile-debian/installers/codex-install.sh"
 else
-  echo "Codex CLI ya está instalado; no se reinstala."
+  echo "Codex CLI ya está instalado."
 fi
 AI
   chmod 0755 /tmp/mobile-debian-ai.sh
@@ -228,195 +268,126 @@ AI
 }
 install_ai
 
-configure_gpu(){
-  [[ "$MODE" != apps-only ]] || return 0
-  local mode=software arch codename url
-  arch="$(dpkg --print-architecture)"
-  codename="$(. /etc/os-release; printf '%s' "${VERSION_CODENAME:-}")"
-
-  if [[ "$INSTALL_GPU" != 1 || "$HOST_HAS_KGSL" != 1 || ! -e /dev/kgsl-3d0 ]]; then
-    printf '%s\n' "$mode" > /etc/mobile-debian-gpu
-    return
-  fi
-  if [[ "$arch" != arm64 || "$codename" != trixie ]]; then
-    warn "Mesa KGSL automático requiere Debian Trixie ARM64."
-    printf '%s\n' "$mode" > /etc/mobile-debian-gpu
-    return
-  fi
-  if [[ "$GPU_FORCE" != 1 ]] && grep -Fxq kgsl /etc/mobile-debian-gpu 2>/dev/null; then
-    say "Mesa KGSL ya está configurado; no se vuelve a descargar."
-    return
-  fi
-
-  say "Descargando Mesa KGSL compatible"
-  url="$(
-    curl -fsSL https://api.github.com/repos/lfdevs/mesa-for-android-container/releases/latest |
-      jq -r '.assets[] | select(.name | endswith("debian_trixie_arm64.tar.gz")) | .browser_download_url' |
-      head -n1
-  )"
-  if [[ -z "$url" || "$url" == null ]]; then
-    warn "No se encontró un paquete Mesa compatible."
-    printf '%s\n' "$mode" > /etc/mobile-debian-gpu
-    return
-  fi
-  curl -fL --retry 3 "$url" -o /tmp/mobile-debian-mesa.tar.gz
-  if tar -tzf /tmp/mobile-debian-mesa.tar.gz | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
-    die "El paquete Mesa contiene rutas inseguras."
-  fi
-  tar -xzf /tmp/mobile-debian-mesa.tar.gz -C /
-  ldconfig
-  printf 'kgsl\n' > /etc/mobile-debian-gpu
-  say "Mesa KGSL configurado"
-}
-configure_gpu
-
-say "Configurando puente para aplicaciones nativas de Termux"
+say "Configurando aplicaciones para PRoot y Termux:X11"
 install -d -m755 \
   /usr/local/bin \
   "$USER_HOME/.local/share/applications" \
-  "$USER_HOME/.local/share/pixmaps" \
-  "$USER_HOME/Desktop" \
   "$USER_HOME/.config/autostart" \
-  "$USER_HOME/.local/bin"
-
-cat > /usr/local/bin/mobile-host-app <<'HOSTAPP'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-app="${1:?Uso: mobile-host-app chromium|code-oss [argumentos]}"
-shift
-bridge_dir=/tmp/mobile-debian-app-bridge
-request_dir="$bridge_dir/requests"
-[[ -d "$request_dir" ]] || {
-  echo "[ERROR] El puente de aplicaciones de Termux no está activo." >&2
-  exit 1
-}
-
-args=("$@")
-if [[ "$app" == code-oss ]]; then
-  rootfs="$(cat "$bridge_dir/rootfs" 2>/dev/null || true)"
-  host_tmp="$(cat "$bridge_dir/host-tmp" 2>/dev/null || true)"
-  translated=()
-  for arg in "${args[@]}"; do
-    if [[ "$arg" != -* && "$arg" != *://* && -e "$arg" ]]; then
-      arg="$(realpath "$arg")"
-    fi
-    case "$arg" in
-      /tmp/*)
-        [[ -n "$host_tmp" ]] && arg="$host_tmp/${arg#/tmp/}"
-        ;;
-      /home/*|/root/*|/opt/*|/srv/*|/var/*|/etc/*|/usr/local/*)
-        [[ -n "$rootfs" ]] && arg="$rootfs$arg"
-        ;;
-    esac
-    translated+=("$arg")
-  done
-  args=("${translated[@]}")
-fi
-
-tmp="$(mktemp "$request_dir/request.XXXXXX")"
-trap 'rm -f "$tmp"' EXIT
-{
-  printf '%s\0' "$app"
-  printf '%s\0' "${args[@]}"
-} > "$tmp"
-mv "$tmp" "$tmp.ready"
-trap - EXIT
-HOSTAPP
-chmod 0755 /usr/local/bin/mobile-host-app
+  "$USER_HOME/.config/gtk-3.0" \
+  "$USER_HOME/.local/bin" \
+  "$USER_HOME/Desktop"
 
 cat > /usr/local/bin/chromium-mobile <<'CHROME'
 #!/usr/bin/env bash
-exec mobile-host-app chromium "$@"
+unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
+exec /usr/bin/chromium \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --password-store=basic \
+  --ozone-platform=x11 \
+  "$@"
 CHROME
 chmod 0755 /usr/local/bin/chromium-mobile
 
 cat > /usr/local/bin/code-mobile <<'CODE'
 #!/usr/bin/env bash
-exec mobile-host-app code-oss "$@"
+unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
+exec /usr/bin/code \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  "$@"
 CODE
 chmod 0755 /usr/local/bin/code-mobile
 
-rm -f /usr/local/bin/chromium-gpu \
-      "$USER_HOME/.local/share/applications/chromium-gpu.desktop" \
-      "$USER_HOME/.local/share/applications/code.desktop" \
-      "$USER_HOME/Desktop/chromium-gpu.desktop" \
-      "$USER_HOME/Desktop/code.desktop"
-
 APP_DIR="$USER_HOME/.local/share/applications"
-cat > "$APP_DIR/chromium-mobile.desktop" <<'DESK'
+rm -f \
+  "$APP_DIR/word-online.desktop" \
+  "$APP_DIR/chromium-gpu.desktop" \
+  "$APP_DIR/code-mobile.desktop" \
+  "$APP_DIR/chromium-mobile.desktop" \
+  "$USER_HOME/Desktop/word-online.desktop" \
+  "$USER_HOME/Desktop/chromium-gpu.desktop"
+
+if [[ "$INSTALL_CHROMIUM" == 1 ]]; then
+  cat > "$APP_DIR/chromium-mobile.desktop" <<'DESK'
 [Desktop Entry]
 Type=Application
 Name=Chromium
-Comment=Chromium nativo de Termux para Termux:X11
+Comment=Navegador web de Debian
 Exec=chromium-mobile %U
 Icon=chromium
 Terminal=false
 Categories=Network;WebBrowser;
 DESK
+  cp "$APP_DIR/chromium-mobile.desktop" "$USER_HOME/Desktop/"
+fi
 
-cat > "$APP_DIR/code-mobile.desktop" <<'DESK'
+if [[ "$INSTALL_VSCODE" == 1 ]]; then
+  cat > "$APP_DIR/code-mobile.desktop" <<'DESK'
 [Desktop Entry]
 Type=Application
-Name=Code - OSS
-Comment=Editor nativo de Termux para Termux:X11
+Name=Visual Studio Code
+Comment=Editor de código oficial
 Exec=code-mobile %F
-Icon=com.visualstudio.code.oss
+Icon=visual-studio-code
 Terminal=false
 Categories=Development;IDE;
 DESK
+  cp "$APP_DIR/code-mobile.desktop" "$USER_HOME/Desktop/"
+fi
 
-cat > "$APP_DIR/word-online.desktop" <<'DESK'
+cat > "$APP_DIR/mobile-debian-logout.desktop" <<'DESK'
 [Desktop Entry]
 Type=Application
-Name=Microsoft Word Online
-Exec=chromium-mobile --app=https://www.office.com/launch/word
-Icon=libreoffice-writer
+Name=Cerrar Mobile Debian
+Comment=Cierra XFCE y permite limpiar Termux:X11 y el wake-lock
+Exec=xfce4-session-logout --logout
+Icon=system-log-out
 Terminal=false
-Categories=Office;
+Categories=System;
 DESK
+cp "$APP_DIR/mobile-debian-logout.desktop" "$USER_HOME/Desktop/"
 
-rm -f "$USER_HOME/Desktop/chromium-mobile.desktop" \
-      "$USER_HOME/Desktop/code-mobile.desktop" \
-      "$USER_HOME/Desktop/word-online.desktop"
-[[ "$INSTALL_CHROMIUM" == 1 ]] && cp "$APP_DIR/chromium-mobile.desktop" "$USER_HOME/Desktop/"
-[[ "$INSTALL_VSCODE" == 1 ]] && cp "$APP_DIR/code-mobile.desktop" "$USER_HOME/Desktop/"
-[[ "$INSTALL_OFFICE" == 1 && "$INSTALL_CHROMIUM" == 1 ]] && cp "$APP_DIR/word-online.desktop" "$USER_HOME/Desktop/"
+if [[ "$STORAGE_ENABLED" == 1 ]]; then
+  cat > "$APP_DIR/android-storage.desktop" <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=Archivos de Android
+Comment=Abre el almacenamiento compartido del teléfono
+Exec=thunar /mnt/android
+Icon=folder
+Terminal=false
+Categories=System;FileTools;
+DESK
+  cp "$APP_DIR/android-storage.desktop" "$USER_HOME/Desktop/"
+  ln -sfn /mnt/android "$USER_HOME/Android"
+  ln -sfn /mnt/android/Download "$USER_HOME/Descargas-Android"
+  ln -sfn /mnt/android/Documents "$USER_HOME/Documentos-Android"
+  ln -sfn /mnt/android/DCIM "$USER_HOME/Camara-Android"
+  touch "$USER_HOME/.config/gtk-3.0/bookmarks"
+  for bookmark in \
+    'file:///mnt/android Archivos de Android' \
+    'file:///mnt/android/Download Descargas de Android' \
+    'file:///mnt/android/Documents Documentos de Android' \
+    'file:///mnt/android/DCIM Cámara de Android'; do
+    grep -Fqx "$bookmark" "$USER_HOME/.config/gtk-3.0/bookmarks" ||
+      printf '%s\n' "$bookmark" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+  done
+fi
+
 for desktop_file in \
-  /usr/share/applications/vlc.desktop \
-  /usr/share/applications/libreoffice-writer.desktop; do
+  /usr/share/applications/libreoffice-startcenter.desktop \
+  /usr/share/applications/vlc.desktop; do
   [[ -f "$desktop_file" ]] && cp "$desktop_file" "$USER_HOME/Desktop/"
 done
 chmod +x "$USER_HOME/Desktop/"*.desktop 2>/dev/null || true
-
-wallpaper="$(
-  find /usr/share/desktop-base -type f \
-    \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.svg' \) \
-    -path '*/wallpaper/*' 2>/dev/null |
-    sort |
-    head -n1 || true
-)"
-printf '%s\n' "$wallpaper" > /etc/mobile-debian-wallpaper
 
 cat > "$USER_HOME/.local/bin/mobile-xfce-fixups" <<'FIX'
 #!/usr/bin/env bash
 set -u
 sleep 3
 xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create >/dev/null 2>&1 || true
-wallpaper="$(cat /etc/mobile-debian-wallpaper 2>/dev/null || true)"
-if [[ -n "$wallpaper" && -f "$wallpaper" ]]; then
-  mapfile -t properties < <(
-    xfconf-query -c xfce4-desktop -l 2>/dev/null |
-      grep '/last-image$' || true
-  )
-  if [[ ${#properties[@]} -eq 0 ]]; then
-    properties=(/backdrop/screen0/monitor0/workspace0/last-image)
-  fi
-  for property in "${properties[@]}"; do
-    xfconf-query -c xfce4-desktop -p "$property" -t string -s "$wallpaper" --create >/dev/null 2>&1 || true
-    xfconf-query -c xfce4-desktop -p "${property%/last-image}/image-style" -t int -s 5 --create >/dev/null 2>&1 || true
-  done
-  xfdesktop --reload >/dev/null 2>&1 || true
-fi
+xfconf-query -c xsettings -p /Gtk/FontName -t string -s 'Noto Sans 10' --create >/dev/null 2>&1 || true
 FIX
 chmod 0755 "$USER_HOME/.local/bin/mobile-xfce-fixups"
 
@@ -425,75 +396,58 @@ for item in light-locker.desktop xiccd.desktop polkit-mate-authentication-agent-
     > "$USER_HOME/.config/autostart/$item"
 done
 
+cat > "$USER_HOME/.profile" <<EOF_PROFILE
+export LANG=$LOCALE
+export LANGUAGE=$LANGUAGE_VALUE
+export LC_ALL=$LOCALE
+export PATH="\$HOME/.local/bin:\$PATH"
+EOF_PROFILE
+
 chown -R "$LINUX_USER:$LINUX_USER" \
   "$USER_HOME/.local" \
   "$USER_HOME/.config" \
-  "$USER_HOME/Desktop"
-
-say "Verificando componentes esenciales"
-for command_name in xfce4-session mobile-host-app; do
-  command -v "$command_name" >/dev/null 2>&1 || die "Falta el componente obligatorio: $command_name"
+  "$USER_HOME/Desktop" \
+  "$USER_HOME/.profile"
+for link in Android Descargas-Android Documentos-Android Camara-Android; do
+  [[ -L "$USER_HOME/$link" ]] && chown -h "$LINUX_USER:$LINUX_USER" "$USER_HOME/$link" || true
 done
-[[ "$INSTALL_CHROMIUM" != 1 ]] || command -v chromium-mobile >/dev/null 2>&1 || warn "El lanzador de Chromium no está disponible."
-[[ "$INSTALL_VSCODE" != 1 ]] || command -v code-mobile >/dev/null 2>&1 || warn "El lanzador de Code - OSS no está disponible."
-[[ "$INSTALL_OFFICE" != 1 ]] || command -v libreoffice >/dev/null 2>&1 || warn "LibreOffice no está disponible."
-[[ "$INSTALL_MEDIA" != 1 ]] || command -v vlc >/dev/null 2>&1 || warn "VLC no está disponible."
 
-[[ "$MODE" == apps-only ]] || apt-get clean
+say "Verificando instalación"
+required=(xfce4-session)
+[[ "$INSTALL_CHROMIUM" == 1 ]] && required+=(chromium-mobile)
+[[ "$INSTALL_VSCODE" == 1 ]] && required+=(code-mobile)
+[[ "$INSTALL_OFFICE" == 1 ]] && required+=(libreoffice)
+[[ "$INSTALL_MEDIA" == 1 ]] && required+=(vlc)
+for command_name in "${required[@]}"; do
+  command -v "$command_name" >/dev/null 2>&1 || die "Falta el componente: $command_name"
+done
+
+apt-get clean
 say "Configuración terminada"
 DEBIAN
   chmod 0755 "$TMPDIR/mobile-debian-configure.sh"
 }
 
 configure_debian(){
-  local mode="${1:-full}"
-  local ai_force="${2:-0}"
-  local gpu_force="${3:-0}"
-  local host_has_kgsl=0
-  [[ -e /dev/kgsl-3d0 ]] && host_has_kgsl=1
-
+  local ai_force="${1:-0}"
   write_debian_configurator
-  proot-distro login "$DISTRO" --shared-tmp -- \
+  distro_login "" \
     /bin/bash /tmp/mobile-debian-configure.sh \
-      "$mode" "$LINUX_USER" "$LOCALE" \
+      "$LINUX_USER" "$LOCALE" "$LANGUAGE_VALUE" "$TIMEZONE" \
       "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
-      "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" "$INSTALL_GPU" \
-      "$ai_force" "$gpu_force" "$host_has_kgsl"
-
-  local gpu
-  gpu="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
-  cat > "$CONFIG_FILE" <<EOF_CONFIG
-DISPLAY_NUM=$DISPLAY_NUM
-GPU_MODE=$gpu
-X11_LEGACY_DRAWING=$X11_LEGACY_DRAWING
-X11_FORCE_BGRA=$X11_FORCE_BGRA
-EOF_CONFIG
+      "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
+      "$ai_force" "$ENABLE_ANDROID_STORAGE"
+  save_config
   date -Iseconds > "$STATE_FILE"
-  ok "Configuración terminada. GPU=$gpu"
-}
-
-load_config(){
-  if [[ -f "$CONFIG_FILE" ]]; then
-    # shellcheck disable=SC1090
-    source "$CONFIG_FILE"
-  fi
-  if [[ -z "${GPU_MODE:-}" ]] && distro_exists; then
-    GPU_MODE="$(proot-distro login "$DISTRO" -- cat /etc/mobile-debian-gpu 2>/dev/null || echo software)"
-  fi
-  GPU_MODE="${GPU_MODE:-software}"
-  X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-1}"
-  X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
+  ok "Debian configurado"
 }
 
 stop_debian_session(){
   distro_exists || return 0
-  proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- bash -lc '
-    for process_name in xfce4-session xfce4-panel xfdesktop xfwm4 Thunar xfce4-terminal chromium code; do
+  distro_login "$LINUX_USER" bash -lc '
+    for process_name in xfce4-session xfce4-panel xfdesktop xfwm4 Thunar xfce4-terminal chromium code soffice.bin vlc; do
       pkill -TERM -x "$process_name" 2>/dev/null || true
     done
-    sleep 0.5
-    pkill -KILL -x chromium 2>/dev/null || true
-    pkill -KILL -x code 2>/dev/null || true
   ' >/dev/null 2>&1 || true
 }
 
@@ -514,7 +468,7 @@ stop_x11_servers(){
   mapfile -t pids < <(x11_pids)
 
   if [[ ${#pids[@]} -gt 0 ]]; then
-    log "Cerrando servidor Termux:X11 anterior"
+    log "Cerrando Termux:X11 anterior"
     for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
     for _ in $(seq 1 40); do
       alive=0
@@ -525,181 +479,15 @@ stop_x11_servers(){
     for pid in "${pids[@]}"; do
       kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
     done
-    sleep 0.5
   fi
 
   pkill -KILL -f '[c]om\.termux\.x11\.CmdEntryPoint' 2>/dev/null || true
   pkill -KILL -f '(^|/)[t]ermux-x11([[:space:]]|$)' 2>/dev/null || true
   sleep 0.3
   rm -f "$X11_PID_FILE"
-}
-
-rootfs_host_path(){
-  local candidate
-  for candidate in \
-    "$PREFIX/var/lib/proot-distro/containers/$DISTRO/rootfs" \
-    "$PREFIX/var/lib/proot-distro/installed-rootfs/$DISTRO"; do
-    [[ -d "$candidate" ]] && { printf '%s\n' "$candidate"; return 0; }
+  for id in 1 2 3 4 5 6 7 8 9; do
+    rm -f "$TMPDIR/.X$id-lock" "$TMPDIR/.X11-unix/X$id"
   done
-  return 1
-}
-
-kill_tracked_host_apps(){
-  local records="$APP_BRIDGE_DIR/pids"
-  local app pid
-  [[ -f "$records" ]] || return 0
-
-  while IFS=: read -r app pid; do
-    [[ "$pid" =~ ^[0-9]+$ ]] || continue
-    if kill -0 "$pid" 2>/dev/null; then
-      case "$app" in
-        chromium|code-oss)
-          kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-          ;;
-      esac
-    fi
-  done < "$records"
-
-  sleep 0.8
-  while IFS=: read -r app pid; do
-    [[ "$pid" =~ ^[0-9]+$ ]] || continue
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-    fi
-  done < "$records"
-}
-
-stop_host_bridge(){
-  local pid=""
-  rm -f "$APP_BRIDGE_DIR/run"
-
-  if [[ -s "$APP_BRIDGE_PID_FILE" ]]; then
-    pid="$(cat "$APP_BRIDGE_PID_FILE" 2>/dev/null || true)"
-    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid" 2>/dev/null || true
-      for _ in $(seq 1 30); do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 0.1
-      done
-      kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
-    fi
-  fi
-
-  kill_tracked_host_apps
-  rm -f "$APP_BRIDGE_PID_FILE"
-  rm -rf "$APP_BRIDGE_DIR"
-}
-
-start_host_bridge(){
-  stop_host_bridge
-  mkdir -p "$APP_BRIDGE_DIR/requests"
-  : > "$APP_BRIDGE_DIR/pids"
-  : > "$APP_BRIDGE_DIR/run"
-  rootfs_host_path > "$APP_BRIDGE_DIR/rootfs" || die "No se encontró el rootfs de Debian."
-  printf '%s\n' "$TMPDIR" > "$APP_BRIDGE_DIR/host-tmp"
-  : > "$HOST_APP_LOG"
-
-  cat > "$TMPDIR/mobile-debian-host-bridge.sh" <<'BRIDGE'
-#!/data/data/com.termux/files/usr/bin/bash
-set -Eeuo pipefail
-
-display="$1"
-bridge_dir="$2"
-log_file="$3"
-prefix="$4"
-host_home="$5"
-request_dir="$bridge_dir/requests"
-pids_file="$bridge_dir/pids"
-run_file="$bridge_dir/run"
-
-launch_app(){
-  local app="$1"
-  shift
-  local executable
-  local -a base_args=()
-
-  case "$app" in
-    chromium)
-      executable="$prefix/bin/chromium"
-      base_args=(
-        --no-sandbox
-        --disable-dev-shm-usage
-        --password-store=basic
-        --ozone-platform=x11
-      )
-      ;;
-    code-oss)
-      executable="$prefix/bin/code-oss"
-      base_args=(
-        --no-sandbox
-        --disable-dev-shm-usage
-      )
-      ;;
-    *)
-      printf '[bridge] Aplicación no permitida: %s\n' "$app" >> "$log_file"
-      return 0
-      ;;
-  esac
-
-  if [[ ! -x "$executable" ]]; then
-    printf '[bridge] No existe: %s\n' "$executable" >> "$log_file"
-    return 0
-  fi
-
-  env \
-    -u LD_PRELOAD \
-    -u LD_LIBRARY_PATH \
-    -u MESA_LOADER_DRIVER_OVERRIDE \
-    -u GALLIUM_DRIVER \
-    -u TU_DEBUG \
-    -u VK_ICD_FILENAMES \
-    HOME="$host_home" \
-    PREFIX="$prefix" \
-    TMPDIR="$prefix/tmp" \
-    XDG_RUNTIME_DIR="$prefix/tmp" \
-    DISPLAY="$display" \
-    PULSE_SERVER=127.0.0.1 \
-    PATH="$prefix/bin:/system/bin:/system/xbin" \
-    setsid "$executable" "${base_args[@]}" "$@" >> "$log_file" 2>&1 &
-  printf '%s:%s\n' "$app" "$!" >> "$pids_file"
-}
-
-cleanup(){
-  rm -f "$run_file"
-}
-trap cleanup EXIT INT TERM HUP
-
-while [[ -e "$run_file" ]]; do
-  shopt -s nullglob
-  requests=("$request_dir"/*.ready)
-  shopt -u nullglob
-
-  if [[ ${#requests[@]} -eq 0 ]]; then
-    sleep 0.2
-    continue
-  fi
-
-  for request in "${requests[@]}"; do
-    argv=()
-    mapfile -d '' -t argv < "$request" || true
-    rm -f "$request"
-    [[ ${#argv[@]} -gt 0 ]] || continue
-    launch_app "${argv[0]}" "${argv[@]:1}"
-  done
-done
-BRIDGE
-  chmod 0755 "$TMPDIR/mobile-debian-host-bridge.sh"
-
-  "$TMPDIR/mobile-debian-host-bridge.sh" \
-    "$DISPLAY_NUM" "$APP_BRIDGE_DIR" "$HOST_APP_LOG" "$PREFIX" "$HOME" &
-  local pid=$!
-  printf '%s\n' "$pid" > "$APP_BRIDGE_PID_FILE"
-  sleep 0.3
-  kill -0 "$pid" 2>/dev/null || {
-    tail -n 40 "$HOST_APP_LOG" >&2 2>/dev/null || true
-    die "No se pudo iniciar el puente de aplicaciones gráficas."
-  }
-  ok "Puente de Chromium y Code - OSS activo"
 }
 
 display_busy(){
@@ -730,7 +518,6 @@ start_x11_server(){
       continue
     fi
 
-    rm -f "$TMPDIR/.X$id-lock" "$TMPDIR/.X11-unix/X$id"
     candidate=":$id"
     log "Iniciando Termux:X11 en $candidate ${x11_args[*]}"
     termux-x11 "$candidate" "${x11_args[@]}" >>"$X11_LOG" 2>&1 &
@@ -762,7 +549,6 @@ start_x11_server(){
 
 cleanup_runtime(){
   stop_debian_session
-  stop_host_bridge
   stop_x11_servers
   pulseaudio --kill 2>/dev/null || true
   am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
@@ -798,7 +584,6 @@ start_desktop(){
     auth-ip-acl=127.0.0.1 auth-anonymous=1 >/dev/null 2>&1 || true
 
   start_x11_server
-  start_host_bridge
   am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 ||
     warn "Abre Termux:X11 manualmente; el servidor ya está activo."
 
@@ -808,27 +593,29 @@ set -Eeuo pipefail
 export DISPLAY="$1"
 export PULSE_SERVER=127.0.0.1
 export XDG_RUNTIME_DIR="/tmp/runtime-$2"
+export LANG="$3"
+export LANGUAGE="$4"
+export LC_ALL="$3"
 unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
+unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 rm -rf "$HOME/.cache/sessions/"* 2>/dev/null || true
 rm -f "$HOME/.Xauthority" 2>/dev/null || true
-# No se fuerzan drivers Mesa sobre XFCE, Chromium ni Electron.
-unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
 socket="/tmp/.X11-unix/X${DISPLAY#:}"
-[[ -e "$socket" ]] || { echo "[ERROR] Socket X11 no visible dentro de Debian: $socket" >&2; exit 1; }
-printf '[Debian] DISPLAY=%s | Mesa disponible=%s | sin driver forzado\n' "$DISPLAY" "$3"
+[[ -e "$socket" ]] || { echo "[ERROR] Socket X11 no visible en Debian: $socket" >&2; exit 1; }
+printf '[Debian] DISPLAY=%s | LANG=%s | GPU sin forzar\n' "$DISPLAY" "$LANG"
 exec dbus-launch --exit-with-session bash -c '"$HOME/.local/bin/mobile-xfce-fixups" >/dev/null 2>&1 & exec xfce4-session'
 START
   chmod 0755 "$TMPDIR/mobile-debian-start.sh"
 
-  log "Iniciando XFCE (Mesa disponible=$GPU_MODE, DISPLAY=$DISPLAY_NUM)"
+  log "Iniciando XFCE en español de Colombia"
   set +e
-  proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- \
-    /bin/bash /tmp/mobile-debian-start.sh "$DISPLAY_NUM" "$LINUX_USER" "$GPU_MODE" \
+  distro_login "$LINUX_USER" \
+    /bin/bash /tmp/mobile-debian-start.sh \
+      "$DISPLAY_NUM" "$LINUX_USER" "$LOCALE" "$LANGUAGE_VALUE" \
     2>&1 | tee "$XFCE_LOG"
-  local rc
-  rc=${PIPESTATUS[0]}
+  local rc=${PIPESTATUS[0]}
   set -e
 
   session_cleanup "$rc"
@@ -846,39 +633,33 @@ stop_desktop(){
 install_all(){
   require_termux
   host_packages
+  setup_android_storage
   ensure_debian
-  configure_debian full 0 0
+  configure_debian 0
 }
 
 update_all(){
   require_termux
   installed || die "Primero instala el entorno."
+  load_config
+  setup_android_storage
   host_packages
-  configure_debian full 0 0
+  configure_debian 0
 }
 
-repair_apps(){
+repair(){
   require_termux
   installed || die "Primero instala el entorno."
   load_config
-  cleanup_runtime
-  log "Migrando Chromium y Code - OSS a paquetes nativos de Termux"
-  host_apps
-  configure_debian apps-only 0 0
-  ok "Migración terminada. Inicia con: $HOME/mobile-debian.sh start"
+  setup_android_storage
+  configure_debian 0
 }
 
 update_ai(){
   require_termux
   installed || die "Primero instala el entorno."
-  configure_debian full 1 0
-}
-
-refresh_gpu(){
-  require_termux
-  installed || die "Primero instala el entorno."
-  warn "Mesa KGSL es experimental y se aplicará solo bajo solicitud explícita."
-  INSTALL_GPU=1 configure_debian full 0 1
+  load_config
+  configure_debian 1
 }
 
 self_update(){
@@ -890,7 +671,7 @@ self_update(){
   if curl -fsSL "$REPO_RAW/mobile-debian-session.sh" -o "$TMPDIR/mobile-debian-session.new"; then
     install -m755 "$TMPDIR/mobile-debian-session.new" "$HOME/mobile-debian-session.sh"
   fi
-  ok "Script actualizado. Ejecuta repair-apps para aplicar cambios de lanzadores."
+  ok "Scripts actualizados"
 }
 
 status(){
@@ -898,15 +679,14 @@ status(){
   load_config
   printf 'Mobile Debian Desktop %s\n' "$VERSION"
   printf 'Debian: %s\n' "$(distro_exists && echo disponible || echo ausente)"
+  printf 'Usuario: %s\n' "$LINUX_USER"
+  printf 'Idioma: %s (%s)\n' "$LOCALE" "$LANGUAGE_VALUE"
+  printf 'Zona horaria: %s\n' "$TIMEZONE"
   printf 'Display preferido: %s\n' "$DISPLAY_NUM"
   printf 'Termux:X11 legacy drawing: %s\n' "$X11_LEGACY_DRAWING"
-  printf 'Mesa del contenedor: %s (no forzado globalmente)\n' "$GPU_MODE"
+  printf 'GPU experimental: desactivada\n'
+  printf 'Almacenamiento Android: %s\n' "${STORAGE_SOURCE:-no configurado}"
   printf 'Wake-lock solicitado: %s\n' "$([[ -f "$WAKE_LOCK_FILE" ]] && echo sí || echo no)"
-  if [[ -s "$APP_BRIDGE_PID_FILE" ]] && kill -0 "$(cat "$APP_BRIDGE_PID_FILE")" 2>/dev/null; then
-    printf 'Puente de aplicaciones: activo (PID %s)\n' "$(cat "$APP_BRIDGE_PID_FILE")"
-  else
-    printf 'Puente de aplicaciones: inactivo\n'
-  fi
   printf 'Servidores X11 detectados:\n'
   x11_pids | sed 's/^/  PID /' || true
 }
@@ -916,21 +696,20 @@ doctor(){
   installed || die "La instalación no está completa."
   load_config
   status
-  for command_name in chromium code-oss; do
-    if command -v "$command_name" >/dev/null 2>&1; then
-      printf "OK   host:%s -> %s\n" "$command_name" "$(command -v "$command_name")"
-    else
-      printf "MISS host:%s\n" "$command_name"
-    fi
-  done
-  proot-distro login "$DISTRO" --shared-tmp --user "$LINUX_USER" -- /bin/bash -lc '
-    for command_name in xfce4-session chromium-mobile code-mobile libreoffice vlc claude codex glxinfo vulkaninfo; do
+  distro_login "$LINUX_USER" /bin/bash -lc '
+    printf "LANG=%s\n" "$LANG"
+    for command_name in xfce4-session chromium-mobile code-mobile libreoffice vlc mpv ffmpeg git python3 node npm claude codex glxinfo; do
       if command -v "$command_name" >/dev/null 2>&1; then
-        printf "OK   guest:%s -> %s\n" "$command_name" "$(command -v "$command_name")"
+        printf "OK   %s -> %s\n" "$command_name" "$(command -v "$command_name")"
       else
-        printf "MISS guest:%s\n" "$command_name"
+        printf "MISS %s\n" "$command_name"
       fi
     done
+    if [[ -d /mnt/android ]]; then
+      printf "OK   /mnt/android disponible\n"
+    else
+      printf "MISS /mnt/android\n"
+    fi
   '
 }
 
@@ -943,14 +722,13 @@ case "${1:-auto}" in
   stop) stop_desktop ;;
   restart) stop_desktop; start_desktop ;;
   update) update_all ;;
-  repair-apps) repair_apps ;;
+  repair) repair ;;
   update-ai) update_ai ;;
-  refresh-gpu) refresh_gpu ;;
   self-update) self_update ;;
   status) status ;;
   doctor) doctor ;;
   *)
-    echo "Uso: $0 [install|start|stop|restart|update|repair-apps|update-ai|refresh-gpu|self-update|status|doctor]"
+    echo "Uso: $0 [install|start|stop|restart|update|repair|update-ai|self-update|status|doctor]"
     exit 2
     ;;
 esac
