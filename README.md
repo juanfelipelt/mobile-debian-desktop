@@ -2,7 +2,7 @@
 
 Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**, configurado para el Samsung Galaxy S25 Ultra y otros equipos ARM64.
 
-La versión 0.6 vuelve a una arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian. No fuerza controladores KGSL, Zink, ANGLE ni rasterización GPU experimental.
+La versión 0.7 mantiene la arquitectura Linux convencional de la 0.6 (las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental) y corrige el arranque gráfico que provocaba pantalla negra.
 
 ## Arquitectura
 
@@ -30,9 +30,11 @@ Android
 - Visual Studio Code usa `--no-sandbox` y `--disable-dev-shm-usage`.
 - No se exportan `MESA_LOADER_DRIVER_OVERRIDE`, `TU_DEBUG`, `GALLIUM_DRIVER` ni `VK_ICD_FILENAMES`.
 - No se usa `--ignore-gpu-blocklist`, `--use-angle`, Zink ni rasterización GPU forzada.
-- Mesa es la versión oficial de Debian.
-- Termux:X11 usa `-legacy-drawing` por defecto en este teléfono, porque la ruta normal produjo una pantalla blanca.
-- El compositor de XFCE permanece desactivado.
+- Mesa es la versión oficial de Debian, con `libgl1-mesa-dri` instalado y `LIBGL_ALWAYS_SOFTWARE=1`, porque PRoot no expone la GPU.
+- Termux:X11 usa la ruta de dibujo normal, igual que los scripts de referencia. `-legacy-drawing` quedó desactivado por defecto porque en las versiones actuales de la aplicación produce pantalla negra.
+- La sesión arranca con `startxfce4`, no con `xfce4-session` directamente, para que se inicien xfsettingsd, xfwm4, xfdesktop y el panel.
+- El compositor de XFCE permanece desactivado y XFCE no guarda la sesión al salir.
+- Antes de abrir un servidor nuevo se le pide a la aplicación Termux:X11 que se cierre y se espera a que suelte el display, para que la ventana no quede enganchada a un servidor muerto.
 
 ## Requisitos
 
@@ -172,6 +174,7 @@ LANGUAGE_VALUE
 TIMEZONE
 X11_LEGACY_DRAWING
 X11_FORCE_BGRA
+X11_SOFTWARE_GL
 INSTALL_DEV_STACK
 INSTALL_OFFICE
 INSTALL_MEDIA
@@ -181,11 +184,30 @@ INSTALL_AI_CLI
 ENABLE_ANDROID_STORAGE
 ```
 
-Ejemplo para probar Termux:X11 sin dibujo heredado:
+Las variables de entorno tienen prioridad sobre el archivo de configuración guardado. Ejemplo para probar el dibujo heredado de Termux:X11:
 
 ```bash
-X11_LEGACY_DRAWING=0 $HOME/mobile-debian.sh start
+X11_LEGACY_DRAWING=1 $HOME/mobile-debian.sh start
 ```
+
+## Pantalla negra
+
+La causa más frecuente es que la aplicación Termux:X11 y el paquete `termux-x11-nightly` tengan versiones distintas. `pkg upgrade` actualiza el paquete, pero la APK de Android se actualiza a mano, así que la pareja se desincroniza sola con el tiempo.
+
+Comprueba las dos versiones:
+
+```bash
+$HOME/mobile-debian.sh doctor
+```
+
+Si no coinciden, instala la APK correspondiente desde las [releases de termux-x11](https://github.com/termux/termux-x11/releases). El script avisa al arrancar cuando detecta la diferencia.
+
+Si las versiones coinciden y la pantalla sigue negra:
+
+1. Cierra todo y vuelve a empezar: `$HOME/mobile-debian.sh stop` y luego `start`.
+2. Prueba el dibujo heredado: `X11_LEGACY_DRAWING=1 $HOME/mobile-debian.sh start`.
+3. Revisa los registros de `~/.local/state/mobile-debian/`.
+4. Reaplica la configuración del escritorio: `$HOME/mobile-debian.sh repair`.
 
 ## Exclusiones intencionales
 

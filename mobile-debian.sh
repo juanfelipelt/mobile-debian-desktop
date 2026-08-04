@@ -1,16 +1,35 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.6.0"
+VERSION="0.7.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
+
+# Las claves que se guardan en el archivo de configuración. Lo que el usuario
+# exporta en el entorno tiene prioridad sobre el archivo, así que se anota aquí
+# antes de aplicar cualquier valor por defecto.
+CONFIG_VERSION_CURRENT=2
+CONFIG_KEYS=(
+  DISPLAY_NUM LOCALE LANGUAGE_VALUE TIMEZONE
+  X11_LEGACY_DRAWING X11_FORCE_BGRA X11_SOFTWARE_GL STORAGE_SOURCE
+)
+ENV_OVERRIDES=()
+for config_key in "${CONFIG_KEYS[@]}"; do
+  [[ -n "${!config_key+set}" ]] && ENV_OVERRIDES+=("$config_key=${!config_key}")
+done
+unset config_key
+
 DISTRO="${DISTRO:-debian}"
 LINUX_USER="${LINUX_USER:-felipe}"
 DISPLAY_NUM="${DISPLAY_NUM:-:1}"
 LOCALE="${LOCALE:-es_CO.UTF-8}"
 LANGUAGE_VALUE="${LANGUAGE_VALUE:-es_CO:es}"
 TIMEZONE="${TIMEZONE:-America/Bogota}"
-X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-1}"
+# La ruta normal de Termux:X11 es la que usan los scripts de referencia. El
+# dibujo heredado solo debe activarse a mano, porque en las versiones recientes
+# de la aplicación produce pantalla negra.
+X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-0}"
 X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
+X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
 
 INSTALL_DEV_STACK="${INSTALL_DEV_STACK:-1}"
 INSTALL_OFFICE="${INSTALL_OFFICE:-1}"
@@ -59,25 +78,40 @@ installed(){
 }
 
 load_config(){
+  local stored_version=0
   if [[ -f "$CONFIG_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$CONFIG_FILE"
+    stored_version="${CONFIG_VERSION:-1}"
   fi
-  X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-1}"
+
+  # Las configuraciones de la versión 1 guardaron -legacy-drawing activado. Esa
+  # ruta produce pantalla negra con las versiones actuales de Termux:X11, así
+  # que se descarta el valor heredado una sola vez y se deja migrado el archivo.
+  if [[ "$stored_version" -gt 0 && "$stored_version" -lt "$CONFIG_VERSION_CURRENT" ]]; then
+    warn "Configuración anterior detectada: se desactiva el dibujo heredado de Termux:X11."
+    X11_LEGACY_DRAWING=0
+    X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
+    save_config
+  fi
+
+  # El archivo nunca pisa lo que el usuario pasó por entorno.
+  local override
+  for override in ${ENV_OVERRIDES[@]+"${ENV_OVERRIDES[@]}"}; do
+    printf -v "${override%%=*}" '%s' "${override#*=}"
+  done
+  X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-0}"
   X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
+  X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
   STORAGE_SOURCE="${STORAGE_SOURCE:-}"
 }
 
 save_config(){
-  cat > "$CONFIG_FILE" <<EOF_CONFIG
-DISPLAY_NUM=$DISPLAY_NUM
-LOCALE=$LOCALE
-LANGUAGE_VALUE=$LANGUAGE_VALUE
-TIMEZONE=$TIMEZONE
-X11_LEGACY_DRAWING=$X11_LEGACY_DRAWING
-X11_FORCE_BGRA=$X11_FORCE_BGRA
-STORAGE_SOURCE=$STORAGE_SOURCE
-EOF_CONFIG
+  local key
+  printf 'CONFIG_VERSION=%s\n' "$CONFIG_VERSION_CURRENT" > "$CONFIG_FILE"
+  for key in "${CONFIG_KEYS[@]}"; do
+    printf '%s=%q\n' "$key" "${!key-}" >> "$CONFIG_FILE"
+  done
 }
 
 acquire_wake_lock(){
@@ -185,7 +219,7 @@ packages=(
   dbus-x11 xauth x11-xserver-utils xdg-utils xdg-user-dirs xdg-user-dirs-gtk desktop-base
   xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd
   thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs gvfs-backends pavucontrol
-  mesa-utils
+  mesa-utils libgl1-mesa-dri libglx-mesa0
   fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
 )
 [[ "$INSTALL_CHROMIUM" == 1 ]] && packages+=(chromium)
@@ -269,6 +303,10 @@ AI
 install_ai
 
 say "Configurando aplicaciones para PRoot y Termux:X11"
+# Con LANG en español xdg-user-dirs crearía ~/Escritorio y xfdesktop dejaría de
+# mirar ~/Desktop, donde este script deja los accesos directos. Se fija el
+# mapeo antes del primer arranque para que ambos coincidan.
+printf 'enabled=False\n' > /etc/xdg/user-dirs.conf
 install -d -m755 \
   /usr/local/bin \
   "$USER_HOME/.local/share/applications" \
@@ -276,6 +314,19 @@ install -d -m755 \
   "$USER_HOME/.config/gtk-3.0" \
   "$USER_HOME/.local/bin" \
   "$USER_HOME/Desktop"
+
+cat > "$USER_HOME/.config/user-dirs.dirs" <<'DIRS'
+XDG_DESKTOP_DIR="$HOME/Desktop"
+XDG_DOWNLOAD_DIR="$HOME/Downloads"
+XDG_DOCUMENTS_DIR="$HOME/Documents"
+XDG_MUSIC_DIR="$HOME/Music"
+XDG_PICTURES_DIR="$HOME/Pictures"
+XDG_VIDEOS_DIR="$HOME/Videos"
+DIRS
+printf 'es_CO\n' > "$USER_HOME/.config/user-dirs.locale"
+install -d -m755 \
+  "$USER_HOME/Downloads" "$USER_HOME/Documents" \
+  "$USER_HOME/Music" "$USER_HOME/Pictures" "$USER_HOME/Videos"
 
 cat > /usr/local/bin/chromium-mobile <<'CHROME'
 #!/usr/bin/env bash
@@ -387,6 +438,9 @@ cat > "$USER_HOME/.local/bin/mobile-xfce-fixups" <<'FIX'
 set -u
 sleep 3
 xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create >/dev/null 2>&1 || true
+# Sin esto XFCE guarda la sesión al salir y restaura una sesión rota en el
+# arranque siguiente, que se ve como una pantalla negra sin panel.
+xfconf-query -c xfce4-session -p /general/SaveOnExit -t bool -s false --create >/dev/null 2>&1 || true
 xfconf-query -c xsettings -p /Gtk/FontName -t string -s 'Noto Sans 10' --create >/dev/null 2>&1 || true
 FIX
 chmod 0755 "$USER_HOME/.local/bin/mobile-xfce-fixups"
@@ -407,6 +461,11 @@ chown -R "$LINUX_USER:$LINUX_USER" \
   "$USER_HOME/.local" \
   "$USER_HOME/.config" \
   "$USER_HOME/Desktop" \
+  "$USER_HOME/Downloads" \
+  "$USER_HOME/Documents" \
+  "$USER_HOME/Music" \
+  "$USER_HOME/Pictures" \
+  "$USER_HOME/Videos" \
   "$USER_HOME/.profile"
 for link in Android Descargas-Android Documentos-Android Camara-Android; do
   [[ -L "$USER_HOME/$link" ]] && chown -h "$LINUX_USER:$LINUX_USER" "$USER_HOME/$link" || true
@@ -462,9 +521,17 @@ x11_pids(){
     '
 }
 
+stop_x11_app(){
+  # La aplicación de Android corre con otro UID: Termux no puede matarla con
+  # kill, solo pedirle que se cierre. Si queda viva conservando la conexión
+  # anterior, la ventana se queda en negro aunque el servidor nuevo funcione.
+  am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
+}
+
 stop_x11_servers(){
   local -a pids=()
   local pid alive=0
+  stop_x11_app
   mapfile -t pids < <(x11_pids)
 
   if [[ ${#pids[@]} -gt 0 ]]; then
@@ -485,9 +552,49 @@ stop_x11_servers(){
   pkill -KILL -f '(^|/)[t]ermux-x11([[:space:]]|$)' 2>/dev/null || true
   sleep 0.3
   rm -f "$X11_PID_FILE"
-  for id in 1 2 3 4 5 6 7 8 9; do
+  for id in 0 1 2 3 4 5 6 7 8 9; do
     rm -f "$TMPDIR/.X$id-lock" "$TMPDIR/.X11-unix/X$id"
   done
+  # La aplicación tarda un momento en soltar el socket abstracto; sin esta
+  # espera el arranque siguiente cree que el display sigue ocupado y salta a
+  # otro, dejando la ventana conectada al servidor muerto.
+  wait_display_free "${DISPLAY_NUM#:}" 30 || true
+}
+
+wait_display_free(){
+  local id="$1" attempts="${2:-30}"
+  local _
+  for _ in $(seq 1 "$attempts"); do
+    display_busy "$id" || return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+x11_apk_version(){
+  command -v pm >/dev/null 2>&1 || return 0
+  pm dump com.termux.x11 2>/dev/null |
+    sed -n 's/.*versionName=\([0-9][0-9.]*\).*/\1/p' | head -n 1 || true
+}
+
+x11_pkg_version(){
+  command -v dpkg-query >/dev/null 2>&1 || return 0
+  dpkg-query -W -f='${Version}' termux-x11-nightly 2>/dev/null |
+    sed -n 's/^\([0-9][0-9.]*\).*/\1/p' || true
+}
+
+check_x11_versions(){
+  local apk pkg
+  apk="$(x11_apk_version)"
+  pkg="$(x11_pkg_version)"
+  [[ -n "$apk" && -n "$pkg" ]] || return 0
+  if [[ "$apk" != "$pkg" ]]; then
+    warn "Termux:X11 desincronizado: paquete $pkg contra aplicación $apk."
+    warn "Esa diferencia es la causa habitual de pantalla negra o blanca."
+    warn "Instala la APK que corresponde a $pkg desde github.com/termux/termux-x11."
+    return 1
+  fi
+  return 0
 }
 
 display_busy(){
@@ -511,6 +618,14 @@ start_x11_server(){
   export XDG_RUNTIME_DIR="$TMPDIR"
   mkdir -p "$TMPDIR/.X11-unix"
   : > "$X11_LOG"
+
+  # Conviene insistir en el display pedido: la aplicación de Android se reengancha
+  # al servidor nuevo sin problema, pero saltar de display por un socket que
+  # todavía no se ha liberado deja la ventana en negro.
+  if display_busy "$requested_id"; then
+    log "Esperando a que se libere el display :$requested_id"
+    wait_display_free "$requested_id" 50 || true
+  fi
 
   for id in "${candidates[@]}"; do
     if display_busy "$id"; then
@@ -551,7 +666,6 @@ cleanup_runtime(){
   stop_debian_session
   stop_x11_servers
   pulseaudio --kill 2>/dev/null || true
-  am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
   release_wake_lock
 }
 
@@ -583,9 +697,11 @@ start_desktop(){
   pactl load-module module-native-protocol-tcp \
     auth-ip-acl=127.0.0.1 auth-anonymous=1 >/dev/null 2>&1 || true
 
+  check_x11_versions || true
   start_x11_server
   am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 ||
     warn "Abre Termux:X11 manualmente; el servidor ya está activo."
+  sleep 1
 
   cat > "$TMPDIR/mobile-debian-start.sh" <<'START'
 #!/usr/bin/env bash
@@ -596,16 +712,35 @@ export XDG_RUNTIME_DIR="/tmp/runtime-$2"
 export LANG="$3"
 export LANGUAGE="$4"
 export LC_ALL="$3"
+software_gl="$5"
 unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
 unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
+# PRoot no expone la GPU, así que Mesa debe resolver por software. Sin esto
+# xfwm4 y xfdesktop pueden abortar al no encontrar un driver DRI y la pantalla
+# se queda en negro con el servidor X funcionando.
+[[ "$software_gl" == 1 ]] && export LIBGL_ALWAYS_SOFTWARE=1
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 rm -rf "$HOME/.cache/sessions/"* 2>/dev/null || true
 rm -f "$HOME/.Xauthority" 2>/dev/null || true
 socket="/tmp/.X11-unix/X${DISPLAY#:}"
 [[ -e "$socket" ]] || { echo "[ERROR] Socket X11 no visible en Debian: $socket" >&2; exit 1; }
-printf '[Debian] DISPLAY=%s | LANG=%s | GPU sin forzar\n' "$DISPLAY" "$LANG"
-exec dbus-launch --exit-with-session bash -c '"$HOME/.local/bin/mobile-xfce-fixups" >/dev/null 2>&1 & exec xfce4-session'
+if command -v xdpyinfo >/dev/null 2>&1 && ! timeout 20 xdpyinfo >/dev/null 2>&1; then
+  echo "[ERROR] El servidor X responde en $socket pero no acepta clientes." >&2
+  echo "[ERROR] Revisa que la versión de la APK Termux:X11 coincida con el paquete." >&2
+  exit 1
+fi
+printf '[Debian] DISPLAY=%s | LANG=%s | GL por software=%s\n' "$DISPLAY" "$LANG" "$software_gl"
+# startxfce4 prepara XDG_CONFIG_DIRS, xinitrc y el arranque de xfsettingsd,
+# xfwm4, xfdesktop y el panel. Llamar a xfce4-session directamente deja el
+# escritorio sin gestor de ventanas ni fondo en una instalación mínima.
+if command -v startxfce4 >/dev/null 2>&1; then
+  session_command=startxfce4
+else
+  session_command=xfce4-session
+fi
+exec dbus-launch --exit-with-session bash -c \
+  '"$HOME/.local/bin/mobile-xfce-fixups" >/dev/null 2>&1 & exec "$1"' _ "$session_command"
 START
   chmod 0755 "$TMPDIR/mobile-debian-start.sh"
 
@@ -613,10 +748,15 @@ START
   set +e
   distro_login "$LINUX_USER" \
     /bin/bash /tmp/mobile-debian-start.sh \
-      "$DISPLAY_NUM" "$LINUX_USER" "$LOCALE" "$LANGUAGE_VALUE" \
+      "$DISPLAY_NUM" "$LINUX_USER" "$LOCALE" "$LANGUAGE_VALUE" "$X11_SOFTWARE_GL" \
     2>&1 | tee "$XFCE_LOG"
   local rc=${PIPESTATUS[0]}
   set -e
+
+  if [[ "$rc" != 0 ]]; then
+    warn "XFCE terminó con código $rc. Últimas líneas de Termux:X11:"
+    tail -n 25 "$X11_LOG" >&2 2>/dev/null || true
+  fi
 
   session_cleanup "$rc"
   trap - EXIT INT TERM HUP
@@ -667,11 +807,16 @@ self_update(){
   local tmp="$TMPDIR/mobile-debian.new"
   curl -fsSL "$REPO_RAW/mobile-debian.sh" -o "$tmp"
   bash -n "$tmp" || die "La versión descargada no pasó la validación de sintaxis."
-  install -m755 "$tmp" "$HOME/mobile-debian.sh"
   if curl -fsSL "$REPO_RAW/mobile-debian-session.sh" -o "$TMPDIR/mobile-debian-session.new"; then
-    install -m755 "$TMPDIR/mobile-debian-session.new" "$HOME/mobile-debian-session.sh"
+    chmod 0755 "$TMPDIR/mobile-debian-session.new"
+    mv -f "$TMPDIR/mobile-debian-session.new" "$HOME/mobile-debian-session.sh"
   fi
+  # mv reemplaza el enlace del directorio en vez de reescribir el archivo que
+  # bash está leyendo ahora mismo, así que la ejecución en curso no se corrompe.
+  chmod 0755 "$tmp"
+  mv -f "$tmp" "$HOME/mobile-debian.sh"
   ok "Scripts actualizados"
+  exit 0
 }
 
 status(){
@@ -684,6 +829,9 @@ status(){
   printf 'Zona horaria: %s\n' "$TIMEZONE"
   printf 'Display preferido: %s\n' "$DISPLAY_NUM"
   printf 'Termux:X11 legacy drawing: %s\n' "$X11_LEGACY_DRAWING"
+  printf 'Termux:X11 paquete: %s\n' "$(x11_pkg_version || true)"
+  printf 'Termux:X11 aplicación: %s\n' "$(x11_apk_version || true)"
+  printf 'GL por software: %s\n' "$X11_SOFTWARE_GL"
   printf 'GPU experimental: desactivada\n'
   printf 'Almacenamiento Android: %s\n' "${STORAGE_SOURCE:-no configurado}"
   printf 'Wake-lock solicitado: %s\n' "$([[ -f "$WAKE_LOCK_FILE" ]] && echo sí || echo no)"
@@ -696,9 +844,11 @@ doctor(){
   installed || die "La instalación no está completa."
   load_config
   status
+  check_x11_versions && ok "Termux:X11 sincronizado entre paquete y aplicación"
   distro_login "$LINUX_USER" /bin/bash -lc '
     printf "LANG=%s\n" "$LANG"
-    for command_name in xfce4-session chromium-mobile code-mobile libreoffice vlc mpv ffmpeg git python3 node npm claude codex glxinfo; do
+    printf "Escritorio XDG=%s\n" "$(xdg-user-dir DESKTOP 2>/dev/null || echo desconocido)"
+    for command_name in startxfce4 xfce4-session xfwm4 xfdesktop xfce4-panel chromium-mobile code-mobile libreoffice vlc mpv ffmpeg git python3 node npm claude codex glxinfo; do
       if command -v "$command_name" >/dev/null 2>&1; then
         printf "OK   %s -> %s\n" "$command_name" "$(command -v "$command_name")"
       else
