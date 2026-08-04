@@ -853,9 +853,15 @@ self_update(){
   exit 0
 }
 
+total_ram_mb(){
+  awk '/^MemTotal:/ { printf "%d", $2 / 1024; exit }' /proc/meminfo 2>/dev/null || true
+}
+
 status(){
   require_termux
   load_config
+  local ram
+  ram="$(total_ram_mb)"
   printf 'Mobile Debian Desktop %s\n' "$VERSION"
   printf 'Debian: %s\n' "$(distro_exists && echo disponible || echo ausente)"
   printf 'Usuario: %s\n' "$LINUX_USER"
@@ -867,10 +873,17 @@ status(){
   printf 'Termux:X11 aplicación: %s\n' "$(x11_apk_version || true)"
   printf 'GL por software: %s\n' "$X11_SOFTWARE_GL"
   printf 'GPU experimental: desactivada\n'
+  printf 'RAM total: %s\n' "$([[ -n "$ram" ]] && echo "$ram MB" || echo desconocida)"
+  printf 'Perfil de bajo consumo: %s\n' \
+    "$([[ "$LOW_MEMORY" == 1 ]] && echo activado || echo desactivado)"
   printf 'Almacenamiento Android: %s\n' "${STORAGE_SOURCE:-no configurado}"
   printf 'Wake-lock solicitado: %s\n' "$([[ -f "$WAKE_LOCK_FILE" ]] && echo sí || echo no)"
   printf 'Servidores X11 detectados:\n'
   x11_pids | sed 's/^/  PID /' || true
+  if [[ -n "$ram" && "$ram" -lt 10000 && "$LOW_MEMORY" != 1 ]]; then
+    warn "Este equipo tiene poca RAM. Si Android mata Termux con signal 9:"
+    warn "  LOW_MEMORY=1 $0 repair"
+  fi
 }
 
 doctor(){
