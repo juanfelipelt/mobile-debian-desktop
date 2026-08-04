@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.12.0"
+VERSION="0.12.1"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -1274,6 +1274,13 @@ doctor(){
   distro_login "$LINUX_USER" /bin/bash -lc '
     printf "LANG=%s\n" "$LANG"
     printf "Escritorio XDG=%s\n" "$(xdg-user-dir DESKTOP 2>/dev/null || echo desconocido)"
+    if [[ -x "$HOME/.local/bin/mobile-xfce-theme" ]]; then
+      printf "Compositor que aplicará la sesión: %s\n" \
+        "$(sed -n "s/.*use_compositing -t bool -s \\([a-z]*\\).*/\\1/p" \
+          "$HOME/.local/bin/mobile-xfce-theme" | head -n 1)"
+    else
+      printf "MISS aplicador del tema; ejecuta: mobile-debian.sh theme\n"
+    fi
     for command_name in startxfce4 xfce4-session xfwm4 xfdesktop xfce4-panel chromium-mobile code-mobile libreoffice gimp vlc mpv ffmpeg git python3 node npm claude codex glxinfo; do
       if command -v "$command_name" >/dev/null 2>&1; then
         printf "OK   %s -> %s\n" "$command_name" "$(command -v "$command_name")"
