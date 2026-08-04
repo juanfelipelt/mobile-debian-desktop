@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.11.2"
+VERSION="0.12.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -235,7 +235,6 @@ INSTALL_GRAPHICS="${13:-0}"
 LOW_MEMORY="${14:-0}"
 KEYBOARD_LAYOUT="${15:-}"
 KEYBOARD_VARIANT="${16:-}"
-COMPOSITING="${17:-false}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -485,7 +484,6 @@ cat > "$USER_HOME/.local/bin/mobile-xfce-fixups" <<FIX
 #!/usr/bin/env bash
 set -u
 sleep 3
-xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s $COMPOSITING --create >/dev/null 2>&1 || true
 # Sin esto XFCE guarda la sesión al salir y restaura una sesión rota en el
 # arranque siguiente, que se ve como una pantalla negra sin panel.
 xfconf-query -c xfce4-session -p /general/SaveOnExit -t bool -s false --create >/dev/null 2>&1 || true
@@ -553,8 +551,7 @@ configure_debian(){
       "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
       "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS" \
-      "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT" \
-      "$([[ "$X11_COMPOSITING" == 1 ]] && echo true || echo false)"
+      "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT"
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"
@@ -1193,6 +1190,7 @@ update_all(){
   setup_android_storage
   host_packages
   configure_debian 0
+  theme_apply_inner "$DESKTOP_THEME"
   release_wake_lock
 }
 
@@ -1203,6 +1201,7 @@ repair(){
   acquire_wake_lock
   setup_android_storage
   configure_debian 0
+  theme_apply_inner "$DESKTOP_THEME"
   release_wake_lock
 }
 

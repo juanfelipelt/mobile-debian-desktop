@@ -2,7 +2,7 @@
 
 Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**, configurado para el Samsung Galaxy S25 Ultra y otros equipos ARM64.
 
-La versión 0.11 mantiene la arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Sobre esa base, la 0.7 corrigió el arranque gráfico que terminaba en pantalla negra, la 0.8 añadió el perfil de bajo consumo para equipos con poca RAM, la 0.9 el tema Catppuccin Mocha la 0.10 la distribución de teclado y las traducciones de Chromium, y la 0.11 el compositor con el tema completo.
+La versión 0.12 mantiene la arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Sobre esa base, la 0.7 corrigió el arranque gráfico que terminaba en pantalla negra, la 0.8 añadió el perfil de bajo consumo para equipos con poca RAM, la 0.9 el tema Catppuccin Mocha la 0.10 la distribución de teclado y las traducciones de Chromium, la 0.11 el compositor con el tema completo y la 0.12 la limpieza de ajustes duplicados.
 
 ## Arquitectura
 
@@ -34,7 +34,7 @@ Android
 - Mesa es la versión oficial de Debian, con `libgl1-mesa-dri` instalado y `LIBGL_ALWAYS_SOFTWARE=1`, porque PRoot no expone la GPU.
 - Termux:X11 usa la ruta de dibujo normal, igual que los scripts de referencia. `-legacy-drawing` quedó desactivado por defecto porque en las versiones actuales de la aplicación produce pantalla negra.
 - La sesión arranca con `startxfce4`, no con `xfce4-session` directamente, para que se inicien xfsettingsd, xfwm4, xfdesktop y el panel.
-- El compositor de XFCE viene activado. Lo que antes dejaba la pantalla negra era encenderlo sin `libgl1-mesa-dri`; con ese driver funciona, aunque todo se dibuje por CPU. Se apaga por dispositivo con `X11_COMPOSITING=0`, y entonces el tema cuadra los menús para que sus esquinas no se dibujen negras.
+- El compositor de XFCE viene activado y da sombras, transparencias y esquinas redondeadas. Lo que antes dejaba la pantalla negra era encenderlo sin `libgl1-mesa-dri`; con ese driver funciona, aunque se dibuje por CPU. Se apaga por dispositivo con `X11_COMPOSITING=0`.
 - XFCE no guarda la sesión al salir.
 - Antes de abrir un servidor nuevo se le pide a la aplicación Termux:X11 que se cierre y se espera a que suelte el display, para que la ventana no quede enganchada a un servidor muerto.
 
@@ -156,7 +156,7 @@ También puedes abrir **Cerrar Mobile Debian** desde el escritorio. Al terminar 
 | `start` | Activa wake-lock, audio, X11 y XFCE |
 | `stop` | Cierra la sesión y libera el wake-lock |
 | `restart` | Reinicia la sesión gráfica |
-| `repair` | Reaplica configuración sin reinstalar Debian |
+| `repair` | Reaplica configuración y tema sin reinstalar Debian |
 | `theme [mocha\|default]` | Alterna entre Catppuccin Mocha y el aspecto original |
 | `update` | Actualiza Termux, Debian y aplicaciones |
 | `update-ai` | Fuerza la actualización de Claude Code y Codex |
@@ -217,23 +217,22 @@ $HOME/mobile-debian.sh start
 
 Sin argumento, `theme` reaplica el que esté guardado. La elección se conserva en la configuración del dispositivo y `status` la muestra.
 
-Los ajustes no se escriben en el momento: el comando deja un aplicador en `~/.local/bin/mobile-xfce-theme` que la sesión ejecuta al arrancar, junto a `mobile-xfce-fixups`. Es la razón de que el cambio se vea al hacer `start` y no antes. Aplicarlos con el escritorio cerrado no es fiable, porque `xfconfd` vive en un bus de D-Bus temporal y puede morir antes de volcarlos al disco.
+Los cambios se ven al iniciar la sesión, no al terminar el comando.
 
-El tema se instala en `~/.themes/Catppuccin-Mocha`, con ese nombre y no con el del paquete original, para que sea legible en Ajustes → Apariencia. Los dos aspectos quedan siempre disponibles ahí, así que también puedes cambiarlos a mano sin usar el comando.
-
-Catppuccin Mocha lleva acento azul: tema GTK y decoración de ventanas desde las releases de [catppuccin/gtk](https://github.com/catppuccin/gtk), iconos Papirus-Dark, paleta oficial en la terminal, fondo liso `#1e1e2e`, panel sólido de 40 píxeles y tipografía monoespaciada JetBrains Mono, Fira Code o Cascadia Code, la primera que esté disponible.
+Ambos aspectos quedan disponibles en Ajustes → Apariencia, así que también puedes cambiarlos desde ahí.
 
 Con el compositor activado, que es como viene, el tema mantiene lo que Catppuccin trae de fábrica: esquinas redondeadas en los menús, sombras bajo las ventanas, panel y terminal translúcidos al 80 %.
 
-Con `X11_COMPOSITING=0` todo eso se apaga y el tema se adapta: cuadra las esquinas de los menús mediante `~/.config/gtk-3.0/gtk.css`, porque sin transparencia esa zona se dibuja como recuadros negros, y deja el panel y la terminal opacos. Catppuccin aguanta bien esa variante porque su identidad está en la paleta, no en los efectos.
+Con `X11_COMPOSITING=0` el tema se adapta solo: menús de esquina recta y sin transparencias, porque sin compositor esas zonas se dibujarían negras.
 
 ```bash
 X11_COMPOSITING=0 $HOME/mobile-debian.sh repair
-$HOME/mobile-debian.sh theme
 $HOME/mobile-debian.sh restart
 ```
 
 Todo se dibuja por CPU, así que en equipos lentos el compositor se nota.
+
+Si la terminal estaba abierta al aplicar el tema, conserva su configuración anterior y sobrescribe la nueva al cerrarse. Ajusta la opacidad en Editar → Preferencias → Apariencia, o cierra la terminal antes de aplicar el tema.
 
 Si la descarga del tema falla, el escritorio queda en Adwaita-dark en lugar de romperse. El tema solo se descarga una vez: las aplicaciones posteriores reutilizan el que ya está en `~/.themes`.
 
