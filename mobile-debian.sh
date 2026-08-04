@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.12.1"
+VERSION="0.12.2"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -895,6 +895,17 @@ for candidate in "JetBrains Mono" "Fira Code" "Cascadia Code"; do
   fi
 done
 
+# Estos valores los usa install_mocha, así que se calculan antes de llamarla.
+if [[ "$COMPOSITING" == true ]]; then
+  panel_alpha=0.80
+  shadows=true
+  term_darkness=0.80
+else
+  panel_alpha=1
+  shadows=false
+  term_darkness=1.0
+fi
+
 install_mocha(){
   say "Descargando el tema (278 KB)"
   local archive="$HOME/.cache/mobile-debian/installers/catppuccin-gtk.zip"
@@ -1032,16 +1043,6 @@ if [[ "$CHOICE" == mocha ]]; then
   panel_style=1
   backdrop_style=0
   backdrop_image=false
-  # Con compositor el panel puede respirar y las ventanas proyectar sombra.
-  if [[ "$COMPOSITING" == true ]]; then
-    panel_alpha=0.80
-    shadows=true
-    term_darkness=0.80
-  else
-    panel_alpha=1
-    shadows=false
-    term_darkness=1.0
-  fi
 else
   restore_default
   icon_theme="Adwaita"
