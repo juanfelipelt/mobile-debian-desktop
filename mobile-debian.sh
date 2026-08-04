@@ -826,7 +826,9 @@ say(){ printf '[Tema] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
 
 if [[ "$CHOICE" == mocha ]]; then
-  say "Instalando iconos y tipografías"
+  say "Instalando iconos Papirus: 192 MB y decenas de miles de archivos."
+  say "El postinst reconstruye la caché de iconos y bajo PRoot puede tardar"
+  say "entre diez y treinta minutos sin imprimir nada. No lo interrumpas."
   apt-get install -y --no-install-recommends papirus-icon-theme unzip ||
     warn "No se pudieron instalar los iconos Papirus."
   for font_package in fonts-jetbrains-mono fonts-firacode fonts-cascadia-code; do
