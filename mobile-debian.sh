@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.9.0"
+VERSION="0.9.1"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -770,7 +770,10 @@ else
   session_command=xfce4-session
 fi
 exec dbus-launch --exit-with-session bash -c \
-  '"$HOME/.local/bin/mobile-xfce-fixups" >/dev/null 2>&1 & exec "$1"' _ "$session_command"
+  'for helper in mobile-xfce-fixups mobile-xfce-theme; do
+     [ -x "$HOME/.local/bin/$helper" ] && "$HOME/.local/bin/$helper" >/dev/null 2>&1 &
+   done
+   exec "$1"' _ "$session_command"
 START
   chmod 0755 "$TMPDIR/mobile-debian-start.sh"
 
@@ -948,9 +951,13 @@ else
   backdrop_style=5
 fi
 
-say "Aplicando ajustes de XFCE"
-apply(){
-  dbus-launch --exit-with-session bash -s <<APPLY
+# Aplicar xfconf con la sesión cerrada no es fiable: xfconfd vive en un bus
+# temporal y puede morir antes de volcar los cambios al disco. En vez de eso se
+# deja un aplicador que la sesión ejecuta al arrancar, donde el bus ya existe.
+say "Preparando los ajustes de XFCE"
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/mobile-xfce-theme" <<APPLY
+#!/usr/bin/env bash
 set -u
 xfconf-query -c xsettings -p /Net/ThemeName -t string -s '$gtk_theme' --create
 xfconf-query -c xsettings -p /Net/IconThemeName -t string -s '$icon_theme' --create
@@ -976,10 +983,16 @@ for prop in \$(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -E '/workspac
     -t double -t double -t double -t double \\
     -s 0.1176 -s 0.1176 -s 0.1804 -s 1 --create
 done
-sleep 2
 APPLY
-}
-apply || warn "Algún ajuste de XFCE no se pudo aplicar."
+chmod 0755 "$HOME/.local/bin/mobile-xfce-theme"
+
+# Si hay una sesión abierta, se aplica en caliente. Si no, lo hará el arranque.
+if [[ -n "${DISPLAY:-}" ]] && xfconf-query -c xsettings -l >/dev/null 2>&1; then
+  "$HOME/.local/bin/mobile-xfce-theme" || warn "Algún ajuste no se pudo aplicar."
+  say "Ajustes aplicados en la sesión actual"
+else
+  say "Los ajustes se aplicarán al iniciar el escritorio"
+fi
 
 if command -v code >/dev/null 2>&1; then
   if [[ "$CHOICE" == mocha ]]; then
