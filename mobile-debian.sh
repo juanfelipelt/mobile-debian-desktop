@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -11,7 +11,8 @@ CONFIG_VERSION_CURRENT=3
 CONFIG_KEYS=(
   DISPLAY_NUM LOCALE LANGUAGE_VALUE TIMEZONE
   X11_LEGACY_DRAWING X11_FORCE_BGRA X11_SOFTWARE_GL LOW_MEMORY
-  DESKTOP_THEME X11_COMPOSITING KEYBOARD_LAYOUT KEYBOARD_VARIANT STORAGE_SOURCE
+  DESKTOP_THEME X11_COMPOSITING KEYBOARD_LAYOUT KEYBOARD_VARIANT
+  GIMP_TILE_CACHE GIMP_UNDO_MEMORY STORAGE_SOURCE
 )
 ENV_OVERRIDES=()
 for config_key in "${CONFIG_KEYS[@]}"; do
@@ -43,6 +44,11 @@ DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
 # CPU, y con libgl1-mesa-dri instalado funciona; lo que antes dejaba la pantalla
 # negra era encenderlo sin ese driver. Ponlo a 0 en equipos que se arrastren.
 X11_COMPOSITING="${X11_COMPOSITING:-1}"
+# Memoria de GIMP. Vacías, se calculan como una fracción de la RAM del equipo:
+# fijar un valor mayor que la memoria libre hace que GIMP no descargue mosaicos
+# a disco y que Android acabe matando Termux. Acepta sufijos: 8G, 512M.
+GIMP_TILE_CACHE="${GIMP_TILE_CACHE:-}"
+GIMP_UNDO_MEMORY="${GIMP_UNDO_MEMORY:-}"
 KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT:-latam}"
 KEYBOARD_VARIANT="${KEYBOARD_VARIANT:-}"
 
@@ -127,6 +133,8 @@ load_config(){
   LOW_MEMORY="${LOW_MEMORY:-0}"
   DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
   X11_COMPOSITING="${X11_COMPOSITING:-1}"
+  GIMP_TILE_CACHE="${GIMP_TILE_CACHE-}"
+  GIMP_UNDO_MEMORY="${GIMP_UNDO_MEMORY-}"
   KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT-latam}"
   KEYBOARD_VARIANT="${KEYBOARD_VARIANT-}"
   STORAGE_SOURCE="${STORAGE_SOURCE:-}"
@@ -235,6 +243,8 @@ INSTALL_GRAPHICS="${13:-0}"
 LOW_MEMORY="${14:-0}"
 KEYBOARD_LAYOUT="${15:-}"
 KEYBOARD_VARIANT="${16:-}"
+GIMP_TILE_CACHE="${17:-}"
+GIMP_UNDO_MEMORY="${18:-}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -248,7 +258,7 @@ packages=(
   sudo locales tzdata ca-certificates curl wget gnupg jq file xz-utils procps psmisc
   dbus-x11 xauth x11-xserver-utils x11-utils x11-xkb-utils
   xdg-utils xdg-user-dirs xdg-user-dirs-gtk desktop-base
-  xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd
+  xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd xfce4-screenshooter
   thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs gvfs-backends pavucontrol
   mesa-utils libgl1-mesa-dri libglx-mesa0
   fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
@@ -525,6 +535,32 @@ for link in Android Descargas-Android Documentos-Android Camara-Android; do
   [[ -L "$USER_HOME/$link" ]] && chown -h "$LINUX_USER:$LINUX_USER" "$USER_HOME/$link" || true
 done
 
+if [[ "$INSTALL_GRAPHICS" == 1 ]] && command -v gimp >/dev/null 2>&1; then
+  say "Ajustando la memoria de GIMP"
+  # Sin valores explícitos se reparte según la RAM del equipo. El caché de
+  # mosaico es el umbral a partir del cual GIMP descarga a disco: por encima de
+  # la memoria libre deja de descargar y Android termina matando Termux.
+  ram_mb="$(awk '/^MemTotal:/ { printf "%d", $2 / 1024; exit }' /proc/meminfo 2>/dev/null || echo 0)"
+  tile_cache="$GIMP_TILE_CACHE"
+  undo_memory="$GIMP_UNDO_MEMORY"
+  if [[ -z "$tile_cache" ]]; then
+    if [[ "$ram_mb" -gt 0 ]]; then tile_cache="$(( ram_mb * 40 / 100 ))M"; else tile_cache=2048M; fi
+  fi
+  if [[ -z "$undo_memory" ]]; then
+    if [[ "$ram_mb" -gt 0 ]]; then undo_memory="$(( ram_mb * 12 / 100 ))M"; else undo_memory=512M; fi
+  fi
+
+  gimp_series="$(gimp --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -n 1)"
+  gimp_series="${gimp_series:-3.0}"
+  gimp_dir="$USER_HOME/.config/GIMP/$gimp_series"
+  install -d -m755 "$gimp_dir"
+  touch "$gimp_dir/gimprc"
+  # Se reescriben solo estas dos claves: el resto del gimprc es del usuario.
+  sed -i -e '/^(tile-cache-size /d' -e '/^(undo-size /d' "$gimp_dir/gimprc"
+  printf '(tile-cache-size %s)\n(undo-size %s)\n' "$tile_cache" "$undo_memory" >> "$gimp_dir/gimprc"
+  say "GIMP: caché de mosaico $tile_cache, memoria de deshacer $undo_memory"
+fi
+
 say "Verificando instalación"
 required=(xfce4-session)
 [[ "$INSTALL_CHROMIUM" == 1 ]] && required+=(chromium-mobile)
@@ -551,7 +587,8 @@ configure_debian(){
       "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
       "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS" \
-      "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT"
+      "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT" \
+      "$GIMP_TILE_CACHE" "$GIMP_UNDO_MEMORY"
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"

@@ -74,6 +74,7 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 - XFCE Terminal.
 - Mousepad.
 - Ristretto.
+- Capturas de pantalla con xfce4-screenshooter.
 - File Roller.
 - PulseAudio y Pavucontrol.
 
@@ -92,7 +93,7 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 
 - LibreOffice completo en español.
 - Diccionario Hunspell en español.
-- GIMP.
+- GIMP, con la memoria ajustada a la RAM del equipo.
 - VLC.
 - mpv.
 - FFmpeg.
@@ -107,6 +108,18 @@ Zona horaria: America/Bogota
 ```
 
 El usuario tiene `sudo` sin contraseña dentro del contenedor.
+
+## Memoria de GIMP
+
+El caché de mosaico marca a partir de cuánta memoria GIMP empieza a descargar a disco. Por defecto se calcula como el 40 % de la RAM del equipo, y la memoria de deshacer como el 12 %, para que un mismo script sirva en un teléfono de 12 GB y en una tablet de 8 sin dejar a Android sin margen.
+
+Se puede fijar a mano:
+
+```bash
+GIMP_TILE_CACHE=8G GIMP_UNDO_MEMORY=2G $HOME/mobile-debian.sh repair
+```
+
+Subirlo por encima de la memoria realmente libre hace que GIMP deje de descargar mosaicos y que Android mate Termux al abrir una imagen grande. El resto del `gimprc` no se toca: solo se reescriben esas dos claves.
 
 ## Almacenamiento de Android
 
@@ -184,6 +197,8 @@ LOW_MEMORY
 DESKTOP_THEME
 KEYBOARD_LAYOUT
 KEYBOARD_VARIANT
+GIMP_TILE_CACHE
+GIMP_UNDO_MEMORY
 INSTALL_DEV_STACK
 INSTALL_OFFICE
 INSTALL_MEDIA
