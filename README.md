@@ -223,7 +223,7 @@ El tema se instala en `~/.themes/Catppuccin-Mocha`, con ese nombre y no con el d
 
 Catppuccin Mocha lleva acento azul: tema GTK y decoración de ventanas desde las releases de [catppuccin/gtk](https://github.com/catppuccin/gtk), iconos Papirus-Dark, paleta oficial en la terminal, fondo liso `#1e1e2e`, panel sólido de 40 píxeles y tipografía monoespaciada JetBrains Mono, Fira Code o Cascadia Code, la primera que esté disponible.
 
-Con el compositor activado, que es como viene, el tema mantiene lo que Catppuccin trae de fábrica: esquinas redondeadas en los menús, sombras bajo las ventanas, panel ligeramente translúcido y un punto de transparencia en la terminal.
+Con el compositor activado, que es como viene, el tema mantiene lo que Catppuccin trae de fábrica: esquinas redondeadas en los menús, sombras bajo las ventanas, panel y terminal translúcidos al 80 %.
 
 Con `X11_COMPOSITING=0` todo eso se apaga y el tema se adapta: cuadra las esquinas de los menús mediante `~/.config/gtk-3.0/gtk.css`, porque sin transparencia esa zona se dibuja como recuadros negros, y deja el panel y la terminal opacos. Catppuccin aguanta bien esa variante porque su identidad está en la paleta, no en los efectos.
 

@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.11.1"
+VERSION="0.11.2"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -1037,9 +1037,9 @@ if [[ "$CHOICE" == mocha ]]; then
   backdrop_image=false
   # Con compositor el panel puede respirar y las ventanas proyectar sombra.
   if [[ "$COMPOSITING" == true ]]; then
-    panel_alpha=0.92
+    panel_alpha=0.80
     shadows=true
-    term_darkness=0.96
+    term_darkness=0.80
   else
     panel_alpha=1
     shadows=false
@@ -1077,12 +1077,22 @@ xfconf-query -c xfwm4 -p /general/title_font -t string -s '$title_font' --create
 xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s $COMPOSITING --create
 xfconf-query -c xfce4-panel -p /panels/panel-1/size -t int -s $panel_size --create
 xfconf-query -c xfce4-panel -p /panels/panel-1/background-style -t int -s $panel_style --create
+# Los efectos se deciden por el estado real del compositor y no por el que
+# hubiera al generar este archivo, para que nunca queden descoordinados.
+if xfconf-query -c xfwm4 -p /general/use_compositing 2>/dev/null | grep -qi true; then
+  panel_alpha=$panel_alpha
+  shadows=true
+  rm -f "\$HOME/.config/gtk-3.0/gtk.css"
+else
+  panel_alpha=1
+  shadows=false
+fi
 xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba \\
   -t double -t double -t double -t double \\
-  -s 0.1176 -s 0.1176 -s 0.1804 -s $panel_alpha --create
-xfconf-query -c xfwm4 -p /general/show_frame_shadow -t bool -s $shadows --create
-xfconf-query -c xfwm4 -p /general/show_popup_shadow -t bool -s $shadows --create
-xfconf-query -c xfwm4 -p /general/show_dock_shadow -t bool -s $shadows --create
+  -s 0.1176 -s 0.1176 -s 0.1804 -s "\$panel_alpha" --create
+xfconf-query -c xfwm4 -p /general/show_frame_shadow -t bool -s "\$shadows" --create
+xfconf-query -c xfwm4 -p /general/show_popup_shadow -t bool -s "\$shadows" --create
+xfconf-query -c xfwm4 -p /general/show_dock_shadow -t bool -s "\$shadows" --create
 
 # El fondo se define por monitor, y segun la version de xfdesktop la ruta
 # lleva o no un nivel de espacio de trabajo. Termux:X11 llega a registrar
