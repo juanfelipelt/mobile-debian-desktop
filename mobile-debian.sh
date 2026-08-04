@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.10.0"
+VERSION="0.10.1"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -236,7 +236,8 @@ apt-get upgrade -y
 
 packages=(
   sudo locales tzdata ca-certificates curl wget gnupg jq file xz-utils procps psmisc
-  dbus-x11 xauth x11-xserver-utils xdg-utils xdg-user-dirs xdg-user-dirs-gtk desktop-base
+  dbus-x11 xauth x11-xserver-utils x11-utils x11-xkb-utils
+  xdg-utils xdg-user-dirs xdg-user-dirs-gtk desktop-base
   xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd
   thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs gvfs-backends pavucontrol
   mesa-utils libgl1-mesa-dri libglx-mesa0
