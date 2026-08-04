@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.7.0"
+VERSION="0.7.1"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -34,6 +34,7 @@ X11_SOFTWARE_GL="${X11_SOFTWARE_GL:-1}"
 INSTALL_DEV_STACK="${INSTALL_DEV_STACK:-1}"
 INSTALL_OFFICE="${INSTALL_OFFICE:-1}"
 INSTALL_MEDIA="${INSTALL_MEDIA:-1}"
+INSTALL_GRAPHICS="${INSTALL_GRAPHICS:-1}"
 INSTALL_VSCODE="${INSTALL_VSCODE:-1}"
 INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-1}"
 INSTALL_AI_CLI="${INSTALL_AI_CLI:-1}"
@@ -205,6 +206,7 @@ INSTALL_CHROMIUM="$9"
 INSTALL_AI_CLI="${10}"
 AI_FORCE="${11}"
 STORAGE_ENABLED="${12}"
+INSTALL_GRAPHICS="${13:-0}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -225,6 +227,7 @@ packages=(
 [[ "$INSTALL_CHROMIUM" == 1 ]] && packages+=(chromium)
 [[ "$INSTALL_OFFICE" == 1 ]] && packages+=(libreoffice libreoffice-l10n-es hunspell-es)
 [[ "$INSTALL_MEDIA" == 1 ]] && packages+=(vlc mpv ffmpeg)
+[[ "$INSTALL_GRAPHICS" == 1 ]] && packages+=(gimp)
 [[ "$INSTALL_DEV_STACK" == 1 ]] && packages+=(git build-essential pkg-config python3 python3-pip python3-venv nodejs npm)
 
 say "Instalando XFCE y aplicaciones"
@@ -428,7 +431,8 @@ fi
 
 for desktop_file in \
   /usr/share/applications/libreoffice-startcenter.desktop \
-  /usr/share/applications/vlc.desktop; do
+  /usr/share/applications/vlc.desktop \
+  /usr/share/applications/gimp.desktop; do
   [[ -f "$desktop_file" ]] && cp "$desktop_file" "$USER_HOME/Desktop/"
 done
 chmod +x "$USER_HOME/Desktop/"*.desktop 2>/dev/null || true
@@ -477,6 +481,7 @@ required=(xfce4-session)
 [[ "$INSTALL_VSCODE" == 1 ]] && required+=(code-mobile)
 [[ "$INSTALL_OFFICE" == 1 ]] && required+=(libreoffice)
 [[ "$INSTALL_MEDIA" == 1 ]] && required+=(vlc)
+[[ "$INSTALL_GRAPHICS" == 1 ]] && required+=(gimp)
 for command_name in "${required[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || die "Falta el componente: $command_name"
 done
@@ -495,7 +500,7 @@ configure_debian(){
       "$LINUX_USER" "$LOCALE" "$LANGUAGE_VALUE" "$TIMEZONE" \
       "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
-      "$ai_force" "$ENABLE_ANDROID_STORAGE"
+      "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS"
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"
@@ -848,7 +853,7 @@ doctor(){
   distro_login "$LINUX_USER" /bin/bash -lc '
     printf "LANG=%s\n" "$LANG"
     printf "Escritorio XDG=%s\n" "$(xdg-user-dir DESKTOP 2>/dev/null || echo desconocido)"
-    for command_name in startxfce4 xfce4-session xfwm4 xfdesktop xfce4-panel chromium-mobile code-mobile libreoffice vlc mpv ffmpeg git python3 node npm claude codex glxinfo; do
+    for command_name in startxfce4 xfce4-session xfwm4 xfdesktop xfce4-panel chromium-mobile code-mobile libreoffice gimp vlc mpv ffmpeg git python3 node npm claude codex glxinfo; do
       if command -v "$command_name" >/dev/null 2>&1; then
         printf "OK   %s -> %s\n" "$command_name" "$(command -v "$command_name")"
       else

@@ -18,6 +18,7 @@ Android
     ├── Chromium
     ├── Visual Studio Code oficial ARM64
     ├── LibreOffice completo
+    ├── GIMP
     ├── VLC, mpv y FFmpeg
     ├── Git, Python, Node.js y herramientas de compilación
     └── Claude Code y Codex CLI
@@ -88,6 +89,7 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 
 - LibreOffice completo en español.
 - Diccionario Hunspell en español.
+- GIMP.
 - VLC.
 - mpv.
 - FFmpeg.
@@ -178,6 +180,7 @@ X11_SOFTWARE_GL
 INSTALL_DEV_STACK
 INSTALL_OFFICE
 INSTALL_MEDIA
+INSTALL_GRAPHICS
 INSTALL_VSCODE
 INSTALL_CHROMIUM
 INSTALL_AI_CLI
