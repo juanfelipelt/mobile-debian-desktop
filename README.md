@@ -152,7 +152,7 @@ También puedes abrir **Cerrar Mobile Debian** desde el escritorio. Al terminar 
 | `stop` | Cierra la sesión y libera el wake-lock |
 | `restart` | Reinicia la sesión gráfica |
 | `repair` | Reaplica configuración sin reinstalar Debian |
-| `theme` | Aplica el tema Catppuccin Mocha al escritorio |
+| `theme [mocha\|default]` | Alterna entre Catppuccin Mocha y el aspecto original |
 | `update` | Actualiza Termux, Debian y aplicaciones |
 | `update-ai` | Fuerza la actualización de Claude Code y Codex |
 | `self-update` | Descarga los scripts actuales del repositorio |
@@ -179,6 +179,7 @@ X11_LEGACY_DRAWING
 X11_FORCE_BGRA
 X11_SOFTWARE_GL
 LOW_MEMORY
+DESKTOP_THEME
 INSTALL_DEV_STACK
 INSTALL_OFFICE
 INSTALL_MEDIA
@@ -197,17 +198,24 @@ X11_LEGACY_DRAWING=1 $HOME/mobile-debian.sh start
 
 ## Personalización
 
+La instalación deja el escritorio en **Catppuccin Mocha**. Para alternar:
+
 ```bash
 $HOME/mobile-debian.sh stop
-$HOME/mobile-debian.sh theme
+$HOME/mobile-debian.sh theme default   # aspecto original de XFCE
+$HOME/mobile-debian.sh theme mocha     # vuelve a Catppuccin
 $HOME/mobile-debian.sh start
 ```
 
-Aplica **Catppuccin Mocha** con acento azul: tema GTK y decoración de ventanas desde las releases de [catppuccin/gtk](https://github.com/catppuccin/gtk), iconos Papirus-Dark, paleta oficial en la terminal, fondo liso `#1e1e2e`, panel sólido de 40 píxeles y tipografía monoespaciada JetBrains Mono, Fira Code o Cascadia Code, la primera que esté disponible.
+Sin argumento, `theme` reaplica el que esté guardado. La elección se conserva en la configuración del dispositivo y `status` la muestra.
+
+El tema se instala en `~/.themes/Catppuccin-Mocha`, con ese nombre y no con el del paquete original, para que sea legible en Ajustes → Apariencia. Los dos aspectos quedan siempre disponibles ahí, así que también puedes cambiarlos a mano sin usar el comando.
+
+Catppuccin Mocha lleva acento azul: tema GTK y decoración de ventanas desde las releases de [catppuccin/gtk](https://github.com/catppuccin/gtk), iconos Papirus-Dark, paleta oficial en la terminal, fondo liso `#1e1e2e`, panel sólido de 40 píxeles y tipografía monoespaciada JetBrains Mono, Fira Code o Cascadia Code, la primera que esté disponible.
 
 El escritorio queda **plano a propósito**: sin transparencias, desenfoque ni sombras, porque todo eso necesita el compositor y el compositor produce pantalla negra en este montaje. Catppuccin funciona bien con esa restricción porque su identidad está en la paleta, no en los efectos.
 
-Si la descarga del tema falla, el escritorio queda en Adwaita-dark en lugar de romperse.
+Si la descarga del tema falla, el escritorio queda en Adwaita-dark en lugar de romperse. El tema solo se descarga una vez: las aplicaciones posteriores reutilizan el que ya está en `~/.themes`.
 
 Tres aplicaciones no siguen el tema del sistema:
 
@@ -215,7 +223,7 @@ Tres aplicaciones no siguen el tema del sistema:
 - **LibreOffice**: con el complemento gtk3 sigue el tema oscuro automáticamente. Si no lo hace, ponlo en Herramientas → Opciones → Ver → Apariencia.
 - **Chromium**: solo lo sigue en parte. El resto se ajusta desde sus propios temas.
 
-Para volver atrás, elige otro tema en Ajustes → Apariencia y en Ajustes → Gestor de ventanas. La configuración anterior de la terminal se guarda en `~/.config/xfce4/terminal/terminalrc.previo`.
+`theme default` devuelve XFCE a Adwaita, restaura la configuración previa de la terminal y deja Visual Studio Code en su tema oscuro estándar.
 
 ## Ajustes de Android
 
