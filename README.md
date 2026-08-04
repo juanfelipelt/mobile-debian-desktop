@@ -211,6 +211,8 @@ $HOME/mobile-debian.sh start
 
 Sin argumento, `theme` reaplica el que esté guardado. La elección se conserva en la configuración del dispositivo y `status` la muestra.
 
+Los ajustes no se escriben en el momento: el comando deja un aplicador en `~/.local/bin/mobile-xfce-theme` que la sesión ejecuta al arrancar, junto a `mobile-xfce-fixups`. Es la razón de que el cambio se vea al hacer `start` y no antes. Aplicarlos con el escritorio cerrado no es fiable, porque `xfconfd` vive en un bus de D-Bus temporal y puede morir antes de volcarlos al disco.
+
 El tema se instala en `~/.themes/Catppuccin-Mocha`, con ese nombre y no con el del paquete original, para que sea legible en Ajustes → Apariencia. Los dos aspectos quedan siempre disponibles ahí, así que también puedes cambiarlos a mano sin usar el comando.
 
 Catppuccin Mocha lleva acento azul: tema GTK y decoración de ventanas desde las releases de [catppuccin/gtk](https://github.com/catppuccin/gtk), iconos Papirus-Dark, paleta oficial en la terminal, fondo liso `#1e1e2e`, panel sólido de 40 píxeles y tipografía monoespaciada JetBrains Mono, Fira Code o Cascadia Code, la primera que esté disponible.
@@ -225,7 +227,7 @@ Tres aplicaciones no siguen el tema del sistema:
 - **LibreOffice**: con el complemento gtk3 sigue el tema oscuro automáticamente. Si no lo hace, ponlo en Herramientas → Opciones → Ver → Apariencia.
 - **Chromium**: solo lo sigue en parte. El resto se ajusta desde sus propios temas.
 
-`theme default` devuelve XFCE a Adwaita, restaura la configuración previa de la terminal y deja Visual Studio Code en su tema oscuro estándar.
+`theme default` devuelve XFCE a Adwaita, restaura la configuración previa de la terminal desde `~/.config/xfce4/terminal/terminalrc.previo` y deja Visual Studio Code en su tema oscuro estándar.
 
 ## Ajustes de Android
 
