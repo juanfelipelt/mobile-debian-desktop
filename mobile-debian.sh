@@ -1,16 +1,12 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.6.0"
+VERSION="0.7.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 DISTRO="${DISTRO:-debian}"
 LINUX_USER="${LINUX_USER:-felipe}"
 DISPLAY_NUM="${DISPLAY_NUM:-:1}"
-LOCALE="${LOCALE:-es_CO.UTF-8}"
-LANGUAGE_VALUE="${LANGUAGE_VALUE:-es_CO:es}"
 TIMEZONE="${TIMEZONE:-America/Bogota}"
-X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-1}"
-X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
 
 INSTALL_DEV_STACK="${INSTALL_DEV_STACK:-1}"
 INSTALL_OFFICE="${INSTALL_OFFICE:-1}"
@@ -37,8 +33,10 @@ warn(){ printf '\033[1;33m[AVISO]\033[0m %s\n' "$*" >&2; }
 die(){ printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 
 require_termux(){
-  [[ "${PREFIX:-}" == /data/data/com.termux/files/usr ]] || die "Ejecuta el script en Termux."
-  [[ "$(uname -m)" == aarch64 ]] || die "Se requiere Android ARM64/aarch64."
+  [[ "${PREFIX:-}" == /data/data/com.termux/files/usr ]] ||
+    die "Ejecuta el script en Termux."
+  [[ "$(uname -m)" == aarch64 ]] ||
+    die "Se requiere Android ARM64/aarch64."
 }
 
 distro_exists(){
@@ -48,9 +46,7 @@ distro_exists(){
 
 installed(){
   distro_exists || return 1
-  if [[ -f "$STATE_FILE" ]]; then
-    return 0
-  fi
+  [[ -f "$STATE_FILE" ]] && return 0
   if proot-distro login "$DISTRO" -- test -x /usr/bin/xfce4-session >/dev/null 2>&1; then
     date -Iseconds > "$STATE_FILE"
     return 0
@@ -63,21 +59,14 @@ load_config(){
     # shellcheck disable=SC1090
     source "$CONFIG_FILE"
   fi
-  X11_LEGACY_DRAWING="${X11_LEGACY_DRAWING:-1}"
-  X11_FORCE_BGRA="${X11_FORCE_BGRA:-0}"
   STORAGE_SOURCE="${STORAGE_SOURCE:-}"
 }
 
 save_config(){
-  cat > "$CONFIG_FILE" <<EOF_CONFIG
+  cat > "$CONFIG_FILE" <<EOF
 DISPLAY_NUM=$DISPLAY_NUM
-LOCALE=$LOCALE
-LANGUAGE_VALUE=$LANGUAGE_VALUE
-TIMEZONE=$TIMEZONE
-X11_LEGACY_DRAWING=$X11_LEGACY_DRAWING
-X11_FORCE_BGRA=$X11_FORCE_BGRA
 STORAGE_SOURCE=$STORAGE_SOURCE
-EOF_CONFIG
+EOF
 }
 
 acquire_wake_lock(){
@@ -98,7 +87,7 @@ release_wake_lock(){
 }
 
 host_packages(){
-  log "Actualizando Termux e instalando componentes base"
+  log "Actualizando Termux"
   pkg update -y
   pkg upgrade -y
   pkg install -y x11-repo
@@ -110,8 +99,6 @@ host_packages(){
 
 setup_android_storage(){
   [[ "$ENABLE_ANDROID_STORAGE" == 1 ]] || return 0
-  command -v termux-setup-storage >/dev/null 2>&1 ||
-    die "No se encontró termux-setup-storage. Actualiza Termux desde GitHub o F-Droid."
 
   if [[ ! -d "$HOME/storage/shared" ]]; then
     log "Solicitando acceso al almacenamiento de Android"
@@ -125,12 +112,12 @@ setup_android_storage(){
   done
 
   [[ -d "$HOME/storage/shared" ]] ||
-    die "No se concedió el acceso al almacenamiento. Abre los permisos de Termux y vuelve a ejecutar."
+    die "No se concedió el acceso al almacenamiento."
 
   STORAGE_SOURCE="$(readlink -f "$HOME/storage/shared" 2>/dev/null || true)"
   [[ -n "$STORAGE_SOURCE" && -d "$STORAGE_SOURCE" ]] ||
-    die "No se pudo resolver la ruta del almacenamiento compartido."
-  ok "Almacenamiento Android disponible en $STORAGE_SOURCE"
+    die "No se pudo resolver el almacenamiento compartido."
+  ok "Almacenamiento Android disponible"
 }
 
 ensure_debian(){
@@ -142,35 +129,32 @@ ensure_debian(){
   fi
 }
 
-distro_login(){
-  local user="$1"
-  shift
-  local -a args=(login "$DISTRO" --shared-tmp)
+login_args(){
+  LOGIN_ARGS=(login "$DISTRO" --shared-tmp)
   if [[ -n "${STORAGE_SOURCE:-}" && -d "$STORAGE_SOURCE" ]]; then
-    args+=(--bind "$STORAGE_SOURCE:/mnt/android")
+    LOGIN_ARGS+=(--bind "$STORAGE_SOURCE:/mnt/android")
   fi
-  [[ -n "$user" ]] && args+=(--user "$user")
-  proot-distro "${args[@]}" -- "$@"
 }
 
-write_debian_configurator(){
+configure_debian(){
+  local ai_force="${1:-0}"
+  login_args
+
   cat > "$TMPDIR/mobile-debian-configure.sh" <<'DEBIAN'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 LINUX_USER="$1"
-LOCALE="$2"
-LANGUAGE_VALUE="$3"
-TIMEZONE="$4"
-INSTALL_DEV_STACK="$5"
-INSTALL_OFFICE="$6"
-INSTALL_MEDIA="$7"
-INSTALL_VSCODE="$8"
-INSTALL_CHROMIUM="$9"
-INSTALL_AI_CLI="${10}"
-AI_FORCE="${11}"
-STORAGE_ENABLED="${12}"
+TIMEZONE="$2"
+INSTALL_DEV_STACK="$3"
+INSTALL_OFFICE="$4"
+INSTALL_MEDIA="$5"
+INSTALL_VSCODE="$6"
+INSTALL_CHROMIUM="$7"
+INSTALL_AI_CLI="$8"
+AI_FORCE="$9"
+STORAGE_ENABLED="${10}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -191,18 +175,16 @@ packages=(
 [[ "$INSTALL_CHROMIUM" == 1 ]] && packages+=(chromium)
 [[ "$INSTALL_OFFICE" == 1 ]] && packages+=(libreoffice libreoffice-l10n-es hunspell-es)
 [[ "$INSTALL_MEDIA" == 1 ]] && packages+=(vlc mpv ffmpeg)
-[[ "$INSTALL_DEV_STACK" == 1 ]] && packages+=(git build-essential pkg-config python3 python3-pip python3-venv nodejs npm)
+[[ "$INSTALL_DEV_STACK" == 1 ]] &&
+  packages+=(git build-essential pkg-config python3 python3-pip python3-venv nodejs npm)
 
 say "Instalando XFCE y aplicaciones"
 apt-get install -y --no-install-recommends "${packages[@]}"
 
-if grep -q "^# *${LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-  sed -i "s/^# *${LOCALE} UTF-8/${LOCALE} UTF-8/" /etc/locale.gen
-elif ! grep -q "^${LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-  printf '%s UTF-8\n' "$LOCALE" >> /etc/locale.gen
-fi
-locale-gen
-update-locale LANG="$LOCALE" LANGUAGE="$LANGUAGE_VALUE" LC_ALL="$LOCALE"
+# Base neutra y estable. No se fuerza es_CO, LANGUAGE ni LC_ALL al iniciar XFCE.
+cat > /etc/default/locale <<'EOF_LOCALE'
+LANG=C.UTF-8
+EOF_LOCALE
 ln -snf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
 printf '%s\n' "$TIMEZONE" > /etc/timezone
 dpkg-reconfigure -f noninteractive tzdata >/dev/null 2>&1 || true
@@ -211,7 +193,8 @@ if ! id "$LINUX_USER" >/dev/null 2>&1; then
   adduser --disabled-password --gecos '' "$LINUX_USER"
 fi
 usermod -aG sudo,audio,video "$LINUX_USER" || true
-printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$LINUX_USER" > "/etc/sudoers.d/90-$LINUX_USER"
+printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$LINUX_USER" \
+  > "/etc/sudoers.d/90-$LINUX_USER"
 chmod 0440 "/etc/sudoers.d/90-$LINUX_USER"
 USER_HOME="$(getent passwd "$LINUX_USER" | cut -d: -f6)"
 
@@ -246,19 +229,16 @@ grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.profile" ||
   printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.profile"
 
 if [[ "$force" == 1 ]] || ! command -v claude >/dev/null 2>&1; then
-  echo "Instalando Claude Code"
-  curl -fsSL https://claude.ai/install.sh -o "$HOME/.cache/mobile-debian/installers/claude-install.sh"
+  curl -fsSL https://claude.ai/install.sh \
+    -o "$HOME/.cache/mobile-debian/installers/claude-install.sh"
   bash "$HOME/.cache/mobile-debian/installers/claude-install.sh"
-else
-  echo "Claude Code ya está instalado."
 fi
 
 if [[ "$force" == 1 ]] || ! command -v codex >/dev/null 2>&1; then
-  echo "Instalando Codex CLI"
-  curl -fsSL https://chatgpt.com/codex/install.sh -o "$HOME/.cache/mobile-debian/installers/codex-install.sh"
-  CODEX_NON_INTERACTIVE=true sh "$HOME/.cache/mobile-debian/installers/codex-install.sh"
-else
-  echo "Codex CLI ya está instalado."
+  curl -fsSL https://chatgpt.com/codex/install.sh \
+    -o "$HOME/.cache/mobile-debian/installers/codex-install.sh"
+  CODEX_NON_INTERACTIVE=true \
+    sh "$HOME/.cache/mobile-debian/installers/codex-install.sh"
 fi
 AI
   chmod 0755 /tmp/mobile-debian-ai.sh
@@ -268,7 +248,6 @@ AI
 }
 install_ai
 
-say "Configurando aplicaciones para PRoot y Termux:X11"
 install -d -m755 \
   /usr/local/bin \
   "$USER_HOME/.local/share/applications" \
@@ -303,8 +282,6 @@ APP_DIR="$USER_HOME/.local/share/applications"
 rm -f \
   "$APP_DIR/word-online.desktop" \
   "$APP_DIR/chromium-gpu.desktop" \
-  "$APP_DIR/code-mobile.desktop" \
-  "$APP_DIR/chromium-mobile.desktop" \
   "$USER_HOME/Desktop/word-online.desktop" \
   "$USER_HOME/Desktop/chromium-gpu.desktop"
 
@@ -313,7 +290,6 @@ if [[ "$INSTALL_CHROMIUM" == 1 ]]; then
 [Desktop Entry]
 Type=Application
 Name=Chromium
-Comment=Navegador web de Debian
 Exec=chromium-mobile %U
 Icon=chromium
 Terminal=false
@@ -327,7 +303,6 @@ if [[ "$INSTALL_VSCODE" == 1 ]]; then
 [Desktop Entry]
 Type=Application
 Name=Visual Studio Code
-Comment=Editor de código oficial
 Exec=code-mobile %F
 Icon=visual-studio-code
 Terminal=false
@@ -336,24 +311,11 @@ DESK
   cp "$APP_DIR/code-mobile.desktop" "$USER_HOME/Desktop/"
 fi
 
-cat > "$APP_DIR/mobile-debian-logout.desktop" <<'DESK'
-[Desktop Entry]
-Type=Application
-Name=Cerrar Mobile Debian
-Comment=Cierra XFCE y permite limpiar Termux:X11 y el wake-lock
-Exec=xfce4-session-logout --logout
-Icon=system-log-out
-Terminal=false
-Categories=System;
-DESK
-cp "$APP_DIR/mobile-debian-logout.desktop" "$USER_HOME/Desktop/"
-
 if [[ "$STORAGE_ENABLED" == 1 ]]; then
   cat > "$APP_DIR/android-storage.desktop" <<'DESK'
 [Desktop Entry]
 Type=Application
 Name=Archivos de Android
-Comment=Abre el almacenamiento compartido del teléfono
 Exec=thunar /mnt/android
 Icon=folder
 Terminal=false
@@ -363,16 +325,6 @@ DESK
   ln -sfn /mnt/android "$USER_HOME/Android"
   ln -sfn /mnt/android/Download "$USER_HOME/Descargas-Android"
   ln -sfn /mnt/android/Documents "$USER_HOME/Documentos-Android"
-  ln -sfn /mnt/android/DCIM "$USER_HOME/Camara-Android"
-  touch "$USER_HOME/.config/gtk-3.0/bookmarks"
-  for bookmark in \
-    'file:///mnt/android Archivos de Android' \
-    'file:///mnt/android/Download Descargas de Android' \
-    'file:///mnt/android/Documents Documentos de Android' \
-    'file:///mnt/android/DCIM Cámara de Android'; do
-    grep -Fqx "$bookmark" "$USER_HOME/.config/gtk-3.0/bookmarks" ||
-      printf '%s\n' "$bookmark" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
-  done
 fi
 
 for desktop_file in \
@@ -382,61 +334,48 @@ for desktop_file in \
 done
 chmod +x "$USER_HOME/Desktop/"*.desktop 2>/dev/null || true
 
-cat > "$USER_HOME/.local/bin/mobile-xfce-fixups" <<'FIX'
-#!/usr/bin/env bash
-set -u
-sleep 3
-xfconf-query -c xfwm4 -p /general/use_compositing -t bool -s false --create >/dev/null 2>&1 || true
-xfconf-query -c xsettings -p /Gtk/FontName -t string -s 'Noto Sans 10' --create >/dev/null 2>&1 || true
-FIX
-chmod 0755 "$USER_HOME/.local/bin/mobile-xfce-fixups"
+# Quita los locales forzados que dejó la versión 0.6.
+touch "$USER_HOME/.profile"
+sed -i \
+  -e '/^[[:space:]]*export LANG=/d' \
+  -e '/^[[:space:]]*export LANGUAGE=/d' \
+  -e '/^[[:space:]]*export LC_ALL=/d' \
+  "$USER_HOME/.profile"
 
-for item in light-locker.desktop xiccd.desktop polkit-mate-authentication-agent-1.desktop xfce4-power-manager.desktop; do
+for item in light-locker.desktop xiccd.desktop \
+            polkit-mate-authentication-agent-1.desktop \
+            xfce4-power-manager.desktop; do
   printf '[Desktop Entry]\nType=Application\nHidden=true\nX-GNOME-Autostart-enabled=false\n' \
     > "$USER_HOME/.config/autostart/$item"
 done
-
-cat > "$USER_HOME/.profile" <<EOF_PROFILE
-export LANG=$LOCALE
-export LANGUAGE=$LANGUAGE_VALUE
-export LC_ALL=$LOCALE
-export PATH="\$HOME/.local/bin:\$PATH"
-EOF_PROFILE
 
 chown -R "$LINUX_USER:$LINUX_USER" \
   "$USER_HOME/.local" \
   "$USER_HOME/.config" \
   "$USER_HOME/Desktop" \
   "$USER_HOME/.profile"
-for link in Android Descargas-Android Documentos-Android Camara-Android; do
-  [[ -L "$USER_HOME/$link" ]] && chown -h "$LINUX_USER:$LINUX_USER" "$USER_HOME/$link" || true
-done
 
-say "Verificando instalación"
 required=(xfce4-session)
 [[ "$INSTALL_CHROMIUM" == 1 ]] && required+=(chromium-mobile)
 [[ "$INSTALL_VSCODE" == 1 ]] && required+=(code-mobile)
 [[ "$INSTALL_OFFICE" == 1 ]] && required+=(libreoffice)
 [[ "$INSTALL_MEDIA" == 1 ]] && required+=(vlc)
 for command_name in "${required[@]}"; do
-  command -v "$command_name" >/dev/null 2>&1 || die "Falta el componente: $command_name"
+  command -v "$command_name" >/dev/null 2>&1 ||
+    die "Falta el componente: $command_name"
 done
 
 apt-get clean
 say "Configuración terminada"
 DEBIAN
-  chmod 0755 "$TMPDIR/mobile-debian-configure.sh"
-}
 
-configure_debian(){
-  local ai_force="${1:-0}"
-  write_debian_configurator
-  distro_login "" \
+  proot-distro "${LOGIN_ARGS[@]}" -- \
     /bin/bash /tmp/mobile-debian-configure.sh \
-      "$LINUX_USER" "$LOCALE" "$LANGUAGE_VALUE" "$TIMEZONE" \
+      "$LINUX_USER" "$TIMEZONE" \
       "$INSTALL_DEV_STACK" "$INSTALL_OFFICE" "$INSTALL_MEDIA" \
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
       "$ai_force" "$ENABLE_ANDROID_STORAGE"
+
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"
@@ -444,8 +383,10 @@ configure_debian(){
 
 stop_debian_session(){
   distro_exists || return 0
-  distro_login "$LINUX_USER" bash -lc '
-    for process_name in xfce4-session xfce4-panel xfdesktop xfwm4 Thunar xfce4-terminal chromium code soffice.bin vlc; do
+  login_args
+  proot-distro "${LOGIN_ARGS[@]}" --user "$LINUX_USER" -- bash -lc '
+    for process_name in xfce4-session xfce4-panel xfdesktop xfwm4 \
+                        Thunar xfce4-terminal chromium code soffice.bin vlc; do
       pkill -TERM -x "$process_name" 2>/dev/null || true
     done
   ' >/dev/null 2>&1 || true
@@ -468,41 +409,43 @@ stop_x11_servers(){
   mapfile -t pids < <(x11_pids)
 
   if [[ ${#pids[@]} -gt 0 ]]; then
-    log "Cerrando Termux:X11 anterior"
-    for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+    log "Cerrando servidor Termux:X11 anterior"
+    for pid in "${pids[@]}"; do
+      kill -TERM "$pid" 2>/dev/null || true
+    done
     for _ in $(seq 1 40); do
       alive=0
-      for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && alive=1; done
+      for pid in "${pids[@]}"; do
+        kill -0 "$pid" 2>/dev/null && alive=1
+      done
       [[ "$alive" == 0 ]] && break
       sleep 0.1
     done
     for pid in "${pids[@]}"; do
-      kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+      kill -0 "$pid" 2>/dev/null &&
+        kill -KILL "$pid" 2>/dev/null || true
     done
+    sleep 0.5
   fi
 
   pkill -KILL -f '[c]om\.termux\.x11\.CmdEntryPoint' 2>/dev/null || true
   pkill -KILL -f '(^|/)[t]ermux-x11([[:space:]]|$)' 2>/dev/null || true
   sleep 0.3
   rm -f "$X11_PID_FILE"
-  for id in 1 2 3 4 5 6 7 8 9; do
-    rm -f "$TMPDIR/.X$id-lock" "$TMPDIR/.X11-unix/X$id"
-  done
 }
 
 display_busy(){
   local id="$1"
-  [[ -e "$TMPDIR/.X11-unix/X$id" || -e "$TMPDIR/.X$id-lock" ]] && return 0
-  grep -qE "(@|/)([^ ]*/)?\.X11-unix/X${id}([[:space:]]|$)" /proc/net/unix 2>/dev/null
+  [[ -e "$TMPDIR/.X11-unix/X$id" || -e "$TMPDIR/.X$id-lock" ]] &&
+    return 0
+  grep -qE "(@|/)([^ ]*/)?\.X11-unix/X${id}([[:space:]]|$)" \
+    /proc/net/unix 2>/dev/null
 }
 
 start_x11_server(){
   local requested_id="${DISPLAY_NUM#:}"
-  local -a candidates=("$requested_id") x11_args=()
+  local -a candidates=("$requested_id")
   local id candidate pid socket ready
-
-  [[ "$X11_LEGACY_DRAWING" == 1 ]] && x11_args+=(-legacy-drawing)
-  [[ "$X11_FORCE_BGRA" == 1 ]] && x11_args+=(-force-bgra)
 
   for id in 1 2 3 4 5 6 7 8 9; do
     [[ "$id" == "$requested_id" ]] || candidates+=("$id")
@@ -518,16 +461,20 @@ start_x11_server(){
       continue
     fi
 
+    rm -f "$TMPDIR/.X$id-lock" "$TMPDIR/.X11-unix/X$id"
     candidate=":$id"
-    log "Iniciando Termux:X11 en $candidate ${x11_args[*]}"
-    termux-x11 "$candidate" "${x11_args[@]}" >>"$X11_LOG" 2>&1 &
+    log "Iniciando Termux:X11 en $candidate"
+    termux-x11 "$candidate" >>"$X11_LOG" 2>&1 &
     pid=$!
     printf '%s\n' "$pid" > "$X11_PID_FILE"
     socket="$TMPDIR/.X11-unix/X$id"
     ready=0
 
     for _ in $(seq 1 60); do
-      if [[ -e "$socket" ]]; then ready=1; break; fi
+      if [[ -e "$socket" ]]; then
+        ready=1
+        break
+      fi
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.2
     done
@@ -547,44 +494,33 @@ start_x11_server(){
   die "No se encontró un display X11 libre entre :1 y :9."
 }
 
-cleanup_runtime(){
+start_desktop(){
+  require_termux
+  installed ||
+    die "La instalación no está completa. Ejecuta: $0 install"
+  load_config
+
+  # Flujo restaurado desde c07a55a: no ACTION_STOP durante el inicio,
+  # no legacy drawing, no locale regional forzado y no GPU global.
   stop_debian_session
   stop_x11_servers
   pulseaudio --kill 2>/dev/null || true
-  am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 >/dev/null 2>&1 || true
-  release_wake_lock
-}
-
-start_desktop(){
-  require_termux
-  installed || die "La instalación no está completa. Ejecuta: $0 install"
-  load_config
-  cleanup_runtime
   acquire_wake_lock
-
-  local cleaned=0
-  session_cleanup(){
-    local rc="${1:-0}"
-    [[ "$cleaned" == 0 ]] || return 0
-    cleaned=1
-    trap - EXIT INT TERM HUP
-    cleanup_runtime
-    [[ "$rc" == 0 ]] && ok "Sesión cerrada y wake-lock liberado"
-  }
-  trap 'rc=$?; session_cleanup "$rc"; exit "$rc"' EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  trap 'exit 129' HUP
 
   log "Iniciando PulseAudio"
   unset PULSE_SERVER
   pulseaudio --start --exit-idle-time=-1
   sleep 1
   pactl load-module module-native-protocol-tcp \
-    auth-ip-acl=127.0.0.1 auth-anonymous=1 >/dev/null 2>&1 || true
+    auth-ip-acl=127.0.0.1 \
+    auth-anonymous=1 \
+    >/dev/null 2>&1 || true
 
   start_x11_server
-  am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 ||
+
+  am start --user 0 \
+    -n com.termux.x11/com.termux.x11.MainActivity \
+    >/dev/null 2>&1 ||
     warn "Abre Termux:X11 manualmente; el servidor ya está activo."
 
   cat > "$TMPDIR/mobile-debian-start.sh" <<'START'
@@ -593,41 +529,95 @@ set -Eeuo pipefail
 export DISPLAY="$1"
 export PULSE_SERVER=127.0.0.1
 export XDG_RUNTIME_DIR="/tmp/runtime-$2"
-export LANG="$3"
-export LANGUAGE="$4"
-export LC_ALL="$3"
+
+# No se fuerza es_CO, LANGUAGE ni LC_ALL.
+export LANG=C.UTF-8
+unset LANGUAGE LC_ALL
 unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
 unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
+
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 rm -rf "$HOME/.cache/sessions/"* 2>/dev/null || true
 rm -f "$HOME/.Xauthority" 2>/dev/null || true
+
 socket="/tmp/.X11-unix/X${DISPLAY#:}"
-[[ -e "$socket" ]] || { echo "[ERROR] Socket X11 no visible en Debian: $socket" >&2; exit 1; }
-printf '[Debian] DISPLAY=%s | LANG=%s | GPU sin forzar\n' "$DISPLAY" "$LANG"
-exec dbus-launch --exit-with-session bash -c '"$HOME/.local/bin/mobile-xfce-fixups" >/dev/null 2>&1 & exec xfce4-session'
+[[ -e "$socket" ]] || {
+  echo "[ERROR] Socket X11 no visible dentro de Debian: $socket" >&2
+  exit 1
+}
+
+printf '[Debian] DISPLAY=%s | inicio estable c07a55a | GPU sin forzar\n' \
+  "$DISPLAY"
+
+exec dbus-launch --exit-with-session bash -c 'exec xfce4-session'
 START
   chmod 0755 "$TMPDIR/mobile-debian-start.sh"
 
-  log "Iniciando XFCE en español de Colombia"
+  log "Iniciando XFCE con el flujo estable"
+  login_args
   set +e
-  distro_login "$LINUX_USER" \
+  proot-distro "${LOGIN_ARGS[@]}" --user "$LINUX_USER" -- \
     /bin/bash /tmp/mobile-debian-start.sh \
-      "$DISPLAY_NUM" "$LINUX_USER" "$LOCALE" "$LANGUAGE_VALUE" \
+      "$DISPLAY_NUM" "$LINUX_USER" \
     2>&1 | tee "$XFCE_LOG"
   local rc=${PIPESTATUS[0]}
   set -e
 
-  session_cleanup "$rc"
-  trap - EXIT INT TERM HUP
+  stop_debian_session
+  stop_x11_servers
+  pulseaudio --kill 2>/dev/null || true
+  am broadcast -a com.termux.x11.ACTION_STOP \
+    -p com.termux.x11 >/dev/null 2>&1 || true
+  release_wake_lock
   return "$rc"
 }
 
 stop_desktop(){
   require_termux
   load_config
-  cleanup_runtime
+  stop_debian_session
+  stop_x11_servers
+  pulseaudio --kill 2>/dev/null || true
+  am broadcast -a com.termux.x11.ACTION_STOP \
+    -p com.termux.x11 >/dev/null 2>&1 || true
+  release_wake_lock
   ok "Sesión cerrada y wake-lock liberado"
+}
+
+reset_desktop(){
+  require_termux
+  installed || die "Primero instala el entorno."
+  load_config
+  stop_desktop
+
+  local stamp
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  login_args
+
+  proot-distro "${LOGIN_ARGS[@]}" -- /bin/bash -lc "
+    set -e
+    home_dir=\$(getent passwd '$LINUX_USER' | cut -d: -f6)
+    if [ -d \"\$home_dir/.config/xfce4\" ]; then
+      mv \"\$home_dir/.config/xfce4\" \
+         \"\$home_dir/.config/xfce4.backup-$stamp\"
+    fi
+    rm -rf \"\$home_dir/.cache/sessions\"
+    rm -f \"\$home_dir/.Xauthority\"
+    touch \"\$home_dir/.profile\"
+    sed -i \
+      -e '/^[[:space:]]*export LANG=/d' \
+      -e '/^[[:space:]]*export LANGUAGE=/d' \
+      -e '/^[[:space:]]*export LC_ALL=/d' \
+      \"\$home_dir/.profile\"
+    chown -R '$LINUX_USER:$LINUX_USER' \
+      \"\$home_dir/.config\" \"\$home_dir/.cache\" \"\$home_dir/.profile\"
+    cat > /etc/default/locale <<'EOF_LOCALE'
+LANG=C.UTF-8
+EOF_LOCALE
+  "
+
+  ok "XFCE restablecido. Copia anterior: ~/.config/xfce4.backup-$stamp"
 }
 
 install_all(){
@@ -635,15 +625,6 @@ install_all(){
   host_packages
   setup_android_storage
   ensure_debian
-  configure_debian 0
-}
-
-update_all(){
-  require_termux
-  installed || die "Primero instala el entorno."
-  load_config
-  setup_android_storage
-  host_packages
   configure_debian 0
 }
 
@@ -666,10 +647,14 @@ self_update(){
   require_termux
   local tmp="$TMPDIR/mobile-debian.new"
   curl -fsSL "$REPO_RAW/mobile-debian.sh" -o "$tmp"
-  bash -n "$tmp" || die "La versión descargada no pasó la validación de sintaxis."
+  bash -n "$tmp" ||
+    die "La versión descargada no pasó la validación de sintaxis."
   install -m755 "$tmp" "$HOME/mobile-debian.sh"
-  if curl -fsSL "$REPO_RAW/mobile-debian-session.sh" -o "$TMPDIR/mobile-debian-session.new"; then
-    install -m755 "$TMPDIR/mobile-debian-session.new" "$HOME/mobile-debian-session.sh"
+
+  if curl -fsSL "$REPO_RAW/mobile-debian-session.sh" \
+       -o "$TMPDIR/mobile-debian-session.new"; then
+    install -m755 "$TMPDIR/mobile-debian-session.new" \
+      "$HOME/mobile-debian-session.sh"
   fi
   ok "Scripts actualizados"
 }
@@ -678,17 +663,15 @@ status(){
   require_termux
   load_config
   printf 'Mobile Debian Desktop %s\n' "$VERSION"
-  printf 'Debian: %s\n' "$(distro_exists && echo disponible || echo ausente)"
+  printf 'Base de arranque: c07a55a\n'
+  printf 'Debian: %s\n' \
+    "$(distro_exists && echo disponible || echo ausente)"
   printf 'Usuario: %s\n' "$LINUX_USER"
-  printf 'Idioma: %s (%s)\n' "$LOCALE" "$LANGUAGE_VALUE"
-  printf 'Zona horaria: %s\n' "$TIMEZONE"
+  printf 'Locale del arranque: C.UTF-8\n'
   printf 'Display preferido: %s\n' "$DISPLAY_NUM"
-  printf 'Termux:X11 legacy drawing: %s\n' "$X11_LEGACY_DRAWING"
   printf 'GPU experimental: desactivada\n'
-  printf 'Almacenamiento Android: %s\n' "${STORAGE_SOURCE:-no configurado}"
-  printf 'Wake-lock solicitado: %s\n' "$([[ -f "$WAKE_LOCK_FILE" ]] && echo sí || echo no)"
-  printf 'Servidores X11 detectados:\n'
-  x11_pids | sed 's/^/  PID /' || true
+  printf 'Almacenamiento Android: %s\n' \
+    "${STORAGE_SOURCE:-no configurado}"
 }
 
 doctor(){
@@ -696,39 +679,43 @@ doctor(){
   installed || die "La instalación no está completa."
   load_config
   status
-  distro_login "$LINUX_USER" /bin/bash -lc '
-    printf "LANG=%s\n" "$LANG"
-    for command_name in xfce4-session chromium-mobile code-mobile libreoffice vlc mpv ffmpeg git python3 node npm claude codex glxinfo; do
-      if command -v "$command_name" >/dev/null 2>&1; then
-        printf "OK   %s -> %s\n" "$command_name" "$(command -v "$command_name")"
-      else
-        printf "MISS %s\n" "$command_name"
-      fi
-    done
-    if [[ -d /mnt/android ]]; then
-      printf "OK   /mnt/android disponible\n"
-    else
-      printf "MISS /mnt/android\n"
-    fi
-  '
+  login_args
+  proot-distro "${LOGIN_ARGS[@]}" --user "$LINUX_USER" -- \
+    /bin/bash -lc '
+      for command_name in xfce4-session chromium-mobile code-mobile \
+                          libreoffice vlc mpv ffmpeg git python3 node \
+                          npm claude codex glxinfo; do
+        if command -v "$command_name" >/dev/null 2>&1; then
+          printf "OK   %s -> %s\n" \
+            "$command_name" "$(command -v "$command_name")"
+        else
+          printf "MISS %s\n" "$command_name"
+        fi
+      done
+    '
 }
 
 case "${1:-auto}" in
   auto)
-    if installed; then start_desktop; else install_all; start_desktop; fi
+    if installed; then
+      start_desktop
+    else
+      install_all
+      start_desktop
+    fi
     ;;
   install) install_all ;;
   start) start_desktop ;;
   stop) stop_desktop ;;
   restart) stop_desktop; start_desktop ;;
-  update) update_all ;;
   repair) repair ;;
+  reset-desktop) reset_desktop ;;
   update-ai) update_ai ;;
   self-update) self_update ;;
   status) status ;;
   doctor) doctor ;;
   *)
-    echo "Uso: $0 [install|start|stop|restart|update|repair|update-ai|self-update|status|doctor]"
+    echo "Uso: $0 [install|start|stop|restart|repair|reset-desktop|update-ai|self-update|status|doctor]"
     exit 2
     ;;
 esac
