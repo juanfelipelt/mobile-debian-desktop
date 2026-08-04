@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="0.9.3"
+VERSION="0.9.4"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -990,6 +990,7 @@ if [[ "$CHOICE" == mocha ]]; then
   panel_size=40
   panel_style=1
   backdrop_style=0
+  backdrop_image=false
 else
   restore_default
   icon_theme="Adwaita"
@@ -998,6 +999,7 @@ else
   panel_size=32
   panel_style=0
   backdrop_style=5
+  backdrop_image=true
 fi
 
 # Aplicar xfconf con la sesión cerrada no es fiable: xfconfd vive en un bus
@@ -1022,19 +1024,20 @@ xfconf-query -c xfce4-panel -p /panels/panel-1/background-rgba \\
   -t double -t double -t double -t double \\
   -s 0.1176 -s 0.1176 -s 0.1804 -s 1 --create
 
-# El fondo se define por monitor y espacio de trabajo. xfdesktop tarda un
-# momento en registrar esas propiedades al iniciar la sesión, y el nombre del
-# monitor lo pone Termux:X11, así que se espera y luego se buscan. Si aún no
-# existen, se deduce el nombre del monitor con xrandr y se crean.
+# El fondo se define por monitor, y segun la version de xfdesktop la ruta
+# lleva o no un nivel de espacio de trabajo. Termux:X11 llega a registrar
+# varios monitores a la vez, asi que se cubren todos los que existan en vez
+# de adivinar cual esta activo. xfdesktop tarda un momento en registrarlos.
 sleep 6
 bases="\$(xfconf-query -c xfce4-desktop -l 2>/dev/null |
-  grep -E '/workspace[0-9]+/last-image\$' | sed 's#/last-image\$##' || true)"
+  grep -E '/last-image\$' | sed 's#/last-image\$##' || true)"
 if [[ -z "\$bases" ]]; then
   monitor="\$(xrandr 2>/dev/null | awk '/ connected/{print \$1; exit}')"
   [[ -n "\$monitor" ]] && bases="/backdrop/screen0/monitor\$monitor/workspace0"
 fi
 for base in \$bases; do
   xfconf-query -c xfce4-desktop -p "\$base/image-style" -t int -s $backdrop_style --create
+  xfconf-query -c xfce4-desktop -p "\$base/image-show" -t bool -s $backdrop_image --create
   xfconf-query -c xfce4-desktop -p "\$base/color-style" -t int -s 0 --create
   xfconf-query -c xfce4-desktop -p "\$base/rgba1" \\
     -t double -t double -t double -t double \\
