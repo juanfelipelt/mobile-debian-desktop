@@ -2,7 +2,7 @@
 
 Escritorio Debian XFCE para Android mediante **Termux + PRoot-Distro + Termux:X11**, configurado para el Samsung Galaxy S25 Ultra y otros equipos ARM64.
 
-La versión 0.7 mantiene la arquitectura Linux convencional de la 0.6 (las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental) y corrige el arranque gráfico que provocaba pantalla negra.
+La versión 0.9 mantiene la arquitectura Linux convencional: las aplicaciones se instalan y ejecutan dentro de Debian, sin forzar controladores KGSL, Zink, ANGLE ni rasterización GPU experimental. Sobre esa base, la 0.7 corrigió el arranque gráfico que terminaba en pantalla negra, la 0.8 añadió el perfil de bajo consumo para equipos con poca RAM y la 0.9 el tema Catppuccin Mocha.
 
 ## Arquitectura
 
@@ -27,14 +27,14 @@ Android
 ## Decisiones de estabilidad
 
 - Chromium y Visual Studio Code se ejecutan dentro de Debian.
-- Chromium usa únicamente los flags mínimos requeridos por PRoot: `--no-sandbox`, `--disable-dev-shm-usage` y X11.
+- Chromium usa únicamente los flags mínimos requeridos por PRoot: `--no-sandbox`, `--disable-dev-shm-usage` y X11. Con `LOW_MEMORY=1` se le añaden los recortes de memoria descritos en Ajustes de Android.
 - Visual Studio Code usa `--no-sandbox` y `--disable-dev-shm-usage`.
 - No se exportan `MESA_LOADER_DRIVER_OVERRIDE`, `TU_DEBUG`, `GALLIUM_DRIVER` ni `VK_ICD_FILENAMES`.
 - No se usa `--ignore-gpu-blocklist`, `--use-angle`, Zink ni rasterización GPU forzada.
 - Mesa es la versión oficial de Debian, con `libgl1-mesa-dri` instalado y `LIBGL_ALWAYS_SOFTWARE=1`, porque PRoot no expone la GPU.
 - Termux:X11 usa la ruta de dibujo normal, igual que los scripts de referencia. `-legacy-drawing` quedó desactivado por defecto porque en las versiones actuales de la aplicación produce pantalla negra.
 - La sesión arranca con `startxfce4`, no con `xfce4-session` directamente, para que se inicien xfsettingsd, xfwm4, xfdesktop y el panel.
-- El compositor de XFCE permanece desactivado y XFCE no guarda la sesión al salir.
+- El compositor de XFCE permanece desactivado y XFCE no guarda la sesión al salir. Por eso la personalización es plana: sin transparencias ni sombras.
 - Antes de abrir un servidor nuevo se le pide a la aplicación Termux:X11 que se cierre y se espera a que suelte el display, para que la ventana no quede enganchada a un servidor muerto.
 
 ## Requisitos
@@ -59,6 +59,8 @@ chmod +x "$HOME/mobile-debian.sh" &&
 ```
 
 Durante la instalación Android solicitará acceso a los archivos. Concédelo para que Debian pueda abrir el almacenamiento compartido.
+
+La instalación descarga varios GB y toma el wake-lock ella misma, así que puedes apagar la pantalla mientras trabaja.
 
 La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecuciones inician directamente XFCE.
 
@@ -147,7 +149,7 @@ También puedes abrir **Cerrar Mobile Debian** desde el escritorio. Al terminar 
 | Comando | Acción |
 |---|---|
 | Sin argumentos | Instala si hace falta; después inicia XFCE |
-| `install` | Instala o repara todos los componentes |
+| `install` | Instala todos los componentes y aplica el tema |
 | `start` | Activa wake-lock, audio, X11 y XFCE |
 | `stop` | Cierra la sesión y libera el wake-lock |
 | `restart` | Reinicia la sesión gráfica |
@@ -156,8 +158,8 @@ También puedes abrir **Cerrar Mobile Debian** desde el escritorio. Al terminar 
 | `update` | Actualiza Termux, Debian y aplicaciones |
 | `update-ai` | Fuerza la actualización de Claude Code y Codex |
 | `self-update` | Descarga los scripts actuales del repositorio |
-| `status` | Muestra idioma, almacenamiento, wake-lock y X11 |
-| `doctor` | Verifica las aplicaciones principales |
+| `status` | Idioma, almacenamiento, RAM, tema, wake-lock y versiones de X11 |
+| `doctor` | Verifica las aplicaciones y la sincronía de Termux:X11 |
 
 ## Registros
 
