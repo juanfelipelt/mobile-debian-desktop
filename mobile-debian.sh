@@ -830,7 +830,11 @@ if [[ "$CHOICE" == mocha ]]; then
   apt-get install -y --no-install-recommends papirus-icon-theme unzip ||
     warn "No se pudieron instalar los iconos Papirus."
   for font_package in fonts-jetbrains-mono fonts-firacode fonts-cascadia-code; do
-    apt-get install -y --no-install-recommends "$font_package" >/dev/null 2>&1 && break || true
+    say "Probando la tipografía $font_package (puede tardar, descarga en silencio)"
+    if apt-get install -y --no-install-recommends "$font_package" >/dev/null 2>&1; then
+      say "Tipografía instalada: $font_package"
+      break
+    fi
   done
 fi
 
@@ -859,6 +863,7 @@ for candidate in "JetBrains Mono" "Fira Code" "Cascadia Code"; do
 done
 
 install_mocha(){
+  say "Descargando el tema (278 KB)"
   local archive="$HOME/.cache/mobile-debian/installers/catppuccin-gtk.zip"
   local staging="$HOME/.cache/mobile-debian/installers/catppuccin-gtk"
   gtk_theme="Adwaita-dark"
@@ -977,6 +982,7 @@ apply || warn "Algún ajuste de XFCE no se pudo aplicar."
 if command -v code >/dev/null 2>&1; then
   if [[ "$CHOICE" == mocha ]]; then
     code_theme="Catppuccin Mocha"
+    say "Instalando la extensión de VS Code (arranca Code en PRoot, tarda un minuto)"
     code --install-extension Catppuccin.catppuccin-vsc --force >/dev/null 2>&1 ||
       warn "No se pudo instalar la extensión Catppuccin de VS Code."
   else
