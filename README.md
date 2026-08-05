@@ -83,7 +83,7 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 ### Navegación y desarrollo
 
 - Chromium de Debian ARM64, con sus traducciones y registrado como navegador por defecto. La sincronización con la cuenta de Google no funciona: la compilación de Debian no incluye las credenciales de Google para ese servicio.
-- Visual Studio Code oficial ARM64 mediante el repositorio de Microsoft.
+- Visual Studio Code oficial ARM64 mediante el repositorio de Microsoft. Los accesos directos que traen los paquetes se ocultan, porque sin `--no-sandbox` no arrancan bajo PRoot y dejaban entradas duplicadas en el menú.
 - Git.
 - Python 3, pip y venv.
 - Node.js y npm.

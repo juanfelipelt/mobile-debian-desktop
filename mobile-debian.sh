@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.6.0"
+VERSION="1.7.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -490,6 +490,8 @@ rm -f \
   "$APP_DIR/chromium-gpu.desktop" \
   "$APP_DIR/code-mobile.desktop" \
   "$APP_DIR/chromium-mobile.desktop" \
+  "$APP_DIR/code.desktop" \
+  "$APP_DIR/chromium.desktop" \
   "$USER_HOME/Desktop/word-online.desktop" \
   "$USER_HOME/Desktop/chromium-gpu.desktop"
 
@@ -564,6 +566,16 @@ MimeType=text/plain;inode/directory;x-scheme-handler/vscode;
 DESK
   cp "$APP_DIR/code-mobile.desktop" "$USER_HOME/Desktop/"
 fi
+
+# Los paquetes traen sus propios accesos directos, que bajo PRoot no arrancan
+# porque les falta --no-sandbox. Se ocultan para no dejar en el menú dos
+# entradas con el mismo nombre, una de ellas muerta.
+for packaged in \
+  "$([[ "$INSTALL_VSCODE" == 1 ]] && echo code.desktop)" \
+  "$([[ "$INSTALL_CHROMIUM" == 1 ]] && echo chromium.desktop)"; do
+  [[ -n "$packaged" ]] || continue
+  printf '[Desktop Entry]\nType=Application\nHidden=true\n' > "$APP_DIR/$packaged"
+done
 
 cat > "$APP_DIR/mobile-debian-logout.desktop" <<'DESK'
 [Desktop Entry]
