@@ -27,7 +27,7 @@ Android
 ## Decisiones de estabilidad
 
 - Chromium usa únicamente los flags mínimos requeridos por PRoot: `--no-sandbox`, `--disable-dev-shm-usage` y X11. Con `LOW_MEMORY=1` se le añaden los recortes de memoria descritos en Ajustes de Android.
-- Visual Studio Code usa `--no-sandbox`, `--disable-dev-shm-usage` y `--password-store=basic`, porque en PRoot no hay llavero del sistema donde guardar el token de GitHub.
+- Se instala `gnome-keyring` y la sesión lo desbloquea al arrancar, así que las aplicaciones que guardan credenciales funcionan sin ajustes propios. Con `KEYRING=0` se desactiva y cada una vuelve a su apaño.
 - No se fuerzan controladores gráficos por variables de entorno ni por flags de Chromium. Los intentos con KGSL y Zink son el origen de las pantallas blancas y negras que costó desenredar.
 - Mesa es la versión oficial de Debian, con `libgl1-mesa-dri` instalado y `LIBGL_ALWAYS_SOFTWARE=1`, porque PRoot no expone la GPU.
 - Termux:X11 usa la ruta de dibujo normal, igual que los scripts de referencia. `-legacy-drawing` quedó desactivado por defecto porque en las versiones actuales de la aplicación produce pantalla negra.
@@ -134,6 +134,18 @@ alias cls='clear'
 
 El `~/.config/starship.toml` solo se escribe si no existe, y los alias se añaden al `~/.bashrc` sin duplicarse. A partir de ahí esos archivos son tuyos: reinstalar o reparar no los sobrescribe. Se omite todo con `INSTALL_SHELL_TOOLS=0`.
 
+## Llavero
+
+Las aplicaciones guardan sus credenciales en un llavero del sistema vía libsecret: el token de GitHub de Visual Studio Code, la sesión de Google en Chromium. Sin llavero cada una necesita su propio apaño y algunas simplemente pierden la sesión en cada arranque.
+
+La sesión desbloquea el llavero **una vez al iniciarse**, no una vez por aplicación. Por defecto lo hace con contraseña vacía, sin preguntar nada. Para cifrarlo de verdad:
+
+```bash
+KEYRING_PASSWORD=ask $HOME/mobile-debian.sh start
+```
+
+Eso pide la contraseña en Termux antes de abrir XFCE. No se guarda en ningún sitio, así que hay que teclearla en cada arranque; a cambio el llavero queda cifrado en reposo. Con contraseña vacía las aplicaciones funcionan igual, pero los secretos quedan legibles para cualquier cosa que corra como tu usuario, igual que antes.
+
 ## Memoria de GIMP
 
 El caché de mosaico marca a partir de cuánta memoria GIMP empieza a descargar a disco. Viene en 8 GB, y la memoria de deshacer en 2 GB, dimensionados para un equipo de 12 GB o más.
@@ -216,6 +228,8 @@ X11_LEGACY_DRAWING
 X11_FORCE_BGRA
 X11_SOFTWARE_GL
 X11_COMPOSITING
+KEYRING
+KEYRING_PASSWORD
 LOW_MEMORY
 DESKTOP_THEME
 KEYBOARD_LAYOUT

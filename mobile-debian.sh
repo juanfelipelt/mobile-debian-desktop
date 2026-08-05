@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.3.1"
+VERSION="1.4.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -11,7 +11,7 @@ CONFIG_VERSION_CURRENT=3
 CONFIG_KEYS=(
   DISPLAY_NUM LOCALE LANGUAGE_VALUE TIMEZONE
   X11_LEGACY_DRAWING X11_FORCE_BGRA X11_SOFTWARE_GL LOW_MEMORY
-  DESKTOP_THEME X11_COMPOSITING KEYBOARD_LAYOUT KEYBOARD_VARIANT
+  DESKTOP_THEME X11_COMPOSITING KEYRING KEYBOARD_LAYOUT KEYBOARD_VARIANT
   GIMP_TILE_CACHE GIMP_UNDO_MEMORY STORAGE_SOURCE
 )
 ENV_OVERRIDES=()
@@ -44,6 +44,10 @@ DESKTOP_THEME="${DESKTOP_THEME:-mocha}"
 # CPU, y con libgl1-mesa-dri instalado funciona; lo que antes dejaba la pantalla
 # negra era encenderlo sin ese driver. Ponlo a 0 en equipos que se arrastren.
 X11_COMPOSITING="${X11_COMPOSITING:-1}"
+# Llavero del sistema. Sin él, cada aplicación que guarde credenciales necesita
+# su propio apaño: Chromium pierde la sesión de Google y VS Code no puede
+# guardar el token de GitHub. Con él, libsecret sirve a todas por igual.
+KEYRING="${KEYRING:-1}"
 # Memoria de GIMP, dimensionada para un equipo de 12 GB o más. En equipos con
 # menos, bájalas: el caché es el umbral a partir del cual GIMP descarga a disco,
 # y por encima de la memoria libre Android termina matando Termux.
@@ -247,6 +251,7 @@ KEYBOARD_VARIANT="${16:-}"
 GIMP_TILE_CACHE="${17:-}"
 GIMP_UNDO_MEMORY="${18:-}"
 INSTALL_SHELL_TOOLS="${19:-0}"
+KEYRING="${20:-0}"
 
 say(){ printf '[Debian] %s\n' "$*"; }
 warn(){ printf '[AVISO] %s\n' "$*" >&2; }
@@ -269,6 +274,7 @@ packages=(
 [[ "$INSTALL_OFFICE" == 1 ]] && packages+=(libreoffice libreoffice-l10n-es hunspell-es)
 [[ "$INSTALL_MEDIA" == 1 ]] && packages+=(vlc mpv ffmpeg)
 [[ "$INSTALL_GRAPHICS" == 1 ]] && packages+=(gimp)
+[[ "$KEYRING" == 1 ]] && packages+=(gnome-keyring libsecret-1-0)
 [[ "$INSTALL_DEV_STACK" == 1 ]] && packages+=(git build-essential pkg-config python3 python3-pip python3-venv nodejs npm)
 
 say "Instalando XFCE y aplicaciones"
@@ -446,7 +452,7 @@ LOW_MEMORY="\${LOW_MEMORY:-$LOW_MEMORY}"
 args=(
   --no-sandbox
   --disable-dev-shm-usage
-  --password-store=basic
+  --password-store=$([[ "$KEYRING" == 1 ]] && echo gnome-libsecret || echo basic)
   --ozone-platform=x11
 )
 # Sin GPU el proceso gráfico falla y reintenta en bucle, y el aislamiento por
@@ -469,9 +475,10 @@ cat > /usr/local/bin/code-mobile <<CODE
 #!/usr/bin/env bash
 unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
 LOW_MEMORY="\${LOW_MEMORY:-$LOW_MEMORY}"
-# En PRoot no hay llavero del sistema, así que sin esto VS Code no puede
-# guardar el token de GitHub y la sesión se pierde en cada arranque.
-args=(--no-sandbox --disable-dev-shm-usage --password-store=basic)
+args=(--no-sandbox --disable-dev-shm-usage)
+# Sin llavero del sistema VS Code no puede guardar el token de GitHub; con
+# gnome-keyring lo detecta solo y no hace falta decirle nada.
+[[ "$KEYRING" == 1 ]] || args+=(--password-store=basic)
 [[ "\$LOW_MEMORY" == 1 ]] && args+=(--disable-gpu)
 exec /usr/bin/code "\${args[@]}" "\$@"
 CODE
@@ -670,7 +677,8 @@ configure_debian(){
       "$INSTALL_VSCODE" "$INSTALL_CHROMIUM" "$INSTALL_AI_CLI" \
       "$ai_force" "$ENABLE_ANDROID_STORAGE" "$INSTALL_GRAPHICS" \
       "$LOW_MEMORY" "$KEYBOARD_LAYOUT" "$KEYBOARD_VARIANT" \
-      "$GIMP_TILE_CACHE" "$GIMP_UNDO_MEMORY" "$INSTALL_SHELL_TOOLS"
+      "$GIMP_TILE_CACHE" "$GIMP_UNDO_MEMORY" "$INSTALL_SHELL_TOOLS" \
+      "$KEYRING"
   save_config
   date -Iseconds > "$STATE_FILE"
   ok "Debian configurado"
@@ -888,6 +896,13 @@ export LANG="$3"
 export LANGUAGE="$4"
 export LC_ALL="$3"
 software_gl="$5"
+keyring_file=/tmp/mobile-debian-keyring
+KEYRING_PASSWORD=""
+if [[ -f "$keyring_file" ]]; then
+  KEYRING_PASSWORD="$(cat "$keyring_file")"
+  rm -f "$keyring_file"
+fi
+export KEYRING_PASSWORD
 unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
 unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
 # PRoot no expone la GPU, así que Mesa debe resolver por software. Sin esto
@@ -915,12 +930,31 @@ else
   session_command=xfce4-session
 fi
 exec dbus-launch --exit-with-session bash -c \
-  'for helper in mobile-xfce-fixups mobile-xfce-theme; do
+  'if command -v gnome-keyring-daemon >/dev/null 2>&1; then
+     # El llavero se desbloquea una vez por sesión: a partir de ahí cualquier
+     # aplicación que use libsecret recibe sus secretos sin volver a preguntar.
+     mkdir -p "$HOME/.local/share/keyrings"
+     [ -f "$HOME/.local/share/keyrings/default" ] ||
+       printf login > "$HOME/.local/share/keyrings/default"
+     eval "$(printf %s "${KEYRING_PASSWORD-}" |
+       gnome-keyring-daemon --unlock --components=secrets,pkcs11 2>/dev/null)" || true
+     export GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+   fi
+   for helper in mobile-xfce-fixups mobile-xfce-theme; do
      [ -x "$HOME/.local/bin/$helper" ] && "$HOME/.local/bin/$helper" >/dev/null 2>&1 &
    done
    exec "$1"' _ "$session_command"
 START
   chmod 0755 "$TMPDIR/mobile-debian-start.sh"
+
+  # El llavero se desbloquea con contraseña vacía salvo que pidas una. La
+  # contraseña no se guarda en ningún sitio: se teclea en cada arranque.
+  if [[ "${KEYRING_PASSWORD:-}" == ask ]]; then
+    read -r -s -p "Contraseña del llavero: " KEYRING_PASSWORD < /dev/tty
+    printf '\n'
+  fi
+  # Se pasa por archivo y no por la línea de órdenes, que sería visible en ps.
+  ( umask 077; printf '%s' "${KEYRING_PASSWORD:-}" > "$TMPDIR/mobile-debian-keyring" )
 
   log "Iniciando XFCE en español de Colombia"
   set +e
