@@ -81,7 +81,7 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 
 ### Navegación y desarrollo
 
-- Chromium de Debian ARM64, con sus traducciones.
+- Chromium de Debian ARM64, con sus traducciones y registrado como navegador por defecto.
 - Visual Studio Code oficial ARM64 mediante el repositorio de Microsoft.
 - Git.
 - Python 3, pip y venv.

@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.2.1"
+VERSION="1.3.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -258,7 +258,7 @@ apt-get upgrade -y
 
 packages=(
   sudo locales tzdata ca-certificates curl wget gnupg jq file xz-utils procps psmisc
-  dbus-x11 xauth x11-xserver-utils x11-utils x11-xkb-utils
+  dbus-x11 xauth x11-xserver-utils x11-utils x11-xkb-utils desktop-file-utils
   xdg-utils xdg-user-dirs xdg-user-dirs-gtk desktop-base
   xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd xfce4-screenshooter
   thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs gvfs-backends pavucontrol
@@ -494,8 +494,24 @@ Exec=chromium-mobile %U
 Icon=chromium
 Terminal=false
 Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
 DESK
   cp "$APP_DIR/chromium-mobile.desktop" "$USER_HOME/Desktop/"
+
+  # Sin navegador por defecto, xdg-open falla y con él todo lo que abra enlaces:
+  # el inicio de sesión de GitHub en Visual Studio Code, por ejemplo.
+  cat > /tmp/mobile-debian-browser.sh <<'BROWSER'
+#!/usr/bin/env bash
+set -u
+update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+xdg-settings set default-web-browser chromium-mobile.desktop >/dev/null 2>&1 || true
+xdg-mime default chromium-mobile.desktop \
+  text/html x-scheme-handler/http x-scheme-handler/https >/dev/null 2>&1 || true
+BROWSER
+  chmod 0755 /tmp/mobile-debian-browser.sh
+  chown "$LINUX_USER:$LINUX_USER" /tmp/mobile-debian-browser.sh
+  su - "$LINUX_USER" -c "bash /tmp/mobile-debian-browser.sh" ||
+    warn "No se pudo fijar Chromium como navegador por defecto."
 fi
 
 if [[ "$INSTALL_VSCODE" == 1 ]]; then
