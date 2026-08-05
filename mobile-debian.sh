@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.4.0"
+VERSION="1.4.1"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -268,7 +268,7 @@ packages=(
   xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd xfce4-screenshooter
   thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs gvfs-backends pavucontrol
   mesa-utils libgl1-mesa-dri libglx-mesa0
-  fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
+  fontconfig fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
 )
 [[ "$INSTALL_CHROMIUM" == 1 ]] && packages+=(chromium chromium-l10n)
 [[ "$INSTALL_OFFICE" == 1 ]] && packages+=(libreoffice libreoffice-l10n-es hunspell-es)
@@ -373,7 +373,7 @@ install_shell_tools(){
 
   # La fuente trae los glifos que necesita el preset Pastel Powerline. Del
   # paquete de 36 variantes solo se instalan las cuatro monoespaciadas.
-  if ! fc-list 2>/dev/null | grep -q CaskaydiaCove; then
+  if [[ ! -f /usr/local/share/fonts/CaskaydiaCoveNerdFontMono-Regular.ttf ]]; then
     say "Instalando la fuente CaskaydiaCove Nerd (descarga de 55 MB)"
     if curl -fSL --retry 2 \
          https://github.com/ryanoasis/nerd-fonts/releases/latest/download/CascadiaCode.zip \
