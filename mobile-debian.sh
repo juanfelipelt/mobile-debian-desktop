@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.3.0"
+VERSION="1.3.1"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -469,7 +469,9 @@ cat > /usr/local/bin/code-mobile <<CODE
 #!/usr/bin/env bash
 unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER TU_DEBUG VK_ICD_FILENAMES
 LOW_MEMORY="\${LOW_MEMORY:-$LOW_MEMORY}"
-args=(--no-sandbox --disable-dev-shm-usage)
+# En PRoot no hay llavero del sistema, así que sin esto VS Code no puede
+# guardar el token de GitHub y la sesión se pierde en cada arranque.
+args=(--no-sandbox --disable-dev-shm-usage --password-store=basic)
 [[ "\$LOW_MEMORY" == 1 ]] && args+=(--disable-gpu)
 exec /usr/bin/code "\${args[@]}" "\$@"
 CODE

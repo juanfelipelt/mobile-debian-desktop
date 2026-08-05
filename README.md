@@ -27,7 +27,7 @@ Android
 ## Decisiones de estabilidad
 
 - Chromium usa únicamente los flags mínimos requeridos por PRoot: `--no-sandbox`, `--disable-dev-shm-usage` y X11. Con `LOW_MEMORY=1` se le añaden los recortes de memoria descritos en Ajustes de Android.
-- Visual Studio Code usa `--no-sandbox` y `--disable-dev-shm-usage`.
+- Visual Studio Code usa `--no-sandbox`, `--disable-dev-shm-usage` y `--password-store=basic`, porque en PRoot no hay llavero del sistema donde guardar el token de GitHub.
 - No se fuerzan controladores gráficos por variables de entorno ni por flags de Chromium. Los intentos con KGSL y Zink son el origen de las pantallas blancas y negras que costó desenredar.
 - Mesa es la versión oficial de Debian, con `libgl1-mesa-dri` instalado y `LIBGL_ALWAYS_SOFTWARE=1`, porque PRoot no expone la GPU.
 - Termux:X11 usa la ruta de dibujo normal, igual que los scripts de referencia. `-legacy-drawing` quedó desactivado por defecto porque en las versiones actuales de la aplicación produce pantalla negra.
