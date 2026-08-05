@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.4.1"
+VERSION="1.5.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -509,19 +509,29 @@ DESK
 
   # Sin navegador por defecto, xdg-open falla y con él todo lo que abra enlaces:
   # el inicio de sesión de GitHub en Visual Studio Code, por ejemplo.
-  cat > /tmp/mobile-debian-browser.sh <<'BROWSER'
+fi
+
+# Sin estas asociaciones xdg-open no sabe a quién entregar un enlace, y se cae
+# todo lo que salta entre aplicaciones: los enlaces del escritorio y la vuelta
+# desde el navegador a Visual Studio Code al terminar de autenticarse.
+cat > /tmp/mobile-debian-assoc.sh <<'ASSOC'
 #!/usr/bin/env bash
 set -u
-update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
-xdg-settings set default-web-browser chromium-mobile.desktop >/dev/null 2>&1 || true
-xdg-mime default chromium-mobile.desktop \
-  text/html x-scheme-handler/http x-scheme-handler/https >/dev/null 2>&1 || true
-BROWSER
-  chmod 0755 /tmp/mobile-debian-browser.sh
-  chown "$LINUX_USER:$LINUX_USER" /tmp/mobile-debian-browser.sh
-  su - "$LINUX_USER" -c "bash /tmp/mobile-debian-browser.sh" ||
-    warn "No se pudo fijar Chromium como navegador por defecto."
+apps="$HOME/.local/share/applications"
+update-desktop-database "$apps" >/dev/null 2>&1 || true
+if [[ -f "$apps/chromium-mobile.desktop" ]]; then
+  xdg-settings set default-web-browser chromium-mobile.desktop >/dev/null 2>&1 || true
+  xdg-mime default chromium-mobile.desktop \
+    text/html x-scheme-handler/http x-scheme-handler/https >/dev/null 2>&1 || true
 fi
+if [[ -f "$apps/code-mobile.desktop" ]]; then
+  xdg-mime default code-mobile.desktop x-scheme-handler/vscode >/dev/null 2>&1 || true
+fi
+ASSOC
+chmod 0755 /tmp/mobile-debian-assoc.sh
+chown "$LINUX_USER:$LINUX_USER" /tmp/mobile-debian-assoc.sh
+su - "$LINUX_USER" -c "bash /tmp/mobile-debian-assoc.sh" ||
+  warn "No se pudieron registrar las asociaciones de enlaces."
 
 if [[ "$INSTALL_VSCODE" == 1 ]]; then
   cat > "$APP_DIR/code-mobile.desktop" <<'DESK'
@@ -533,6 +543,7 @@ Exec=code-mobile %F
 Icon=visual-studio-code
 Terminal=false
 Categories=Development;IDE;
+MimeType=text/plain;inode/directory;x-scheme-handler/vscode;
 DESK
   cp "$APP_DIR/code-mobile.desktop" "$USER_HOME/Desktop/"
 fi
