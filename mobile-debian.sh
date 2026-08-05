@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.5.0"
+VERSION="1.6.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -266,7 +266,7 @@ packages=(
   dbus-x11 xauth x11-xserver-utils x11-utils x11-xkb-utils desktop-file-utils
   xdg-utils xdg-user-dirs xdg-user-dirs-gtk desktop-base
   xfce4 xfce4-terminal xfce4-whiskermenu-plugin xfce4-notifyd xfce4-screenshooter
-  thunar-archive-plugin file-roller mousepad ristretto tumbler gvfs gvfs-backends pavucontrol
+  thunar-archive-plugin file-roller mousepad ristretto atril tumbler gvfs gvfs-backends pavucontrol
   mesa-utils libgl1-mesa-dri libglx-mesa0
   fontconfig fonts-noto-core fonts-noto-color-emoji fonts-liberation fonts-crosextra-carlito
 )
@@ -527,6 +527,23 @@ fi
 if [[ -f "$apps/code-mobile.desktop" ]]; then
   xdg-mime default code-mobile.desktop x-scheme-handler/vscode >/dev/null 2>&1 || true
 fi
+
+# El identificador del .desktop cambia entre versiones de Debian, así que se
+# prueban los que existen en vez de darlo por supuesto.
+set_default(){
+  local candidates="$1" types="$2" entry
+  for entry in $candidates; do
+    if [[ -f "/usr/share/applications/$entry" || -f "$apps/$entry" ]]; then
+      # shellcheck disable=SC2086
+      xdg-mime default "$entry" $types >/dev/null 2>&1 || true
+      return 0
+    fi
+  done
+}
+set_default "org.xfce.ristretto.desktop ristretto.desktop" \
+  "image/png image/jpeg image/gif image/bmp image/webp image/tiff image/x-xcf"
+set_default "atril.desktop org.mate.Atril.desktop evince.desktop" \
+  "application/pdf"
 ASSOC
 chmod 0755 /tmp/mobile-debian-assoc.sh
 chown "$LINUX_USER:$LINUX_USER" /tmp/mobile-debian-assoc.sh

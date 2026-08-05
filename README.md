@@ -74,9 +74,10 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 - XFCE Terminal con starship, el preset Pastel Powerline y la fuente CaskaydiaCove Nerd.
 - `lsd`, con `ls` y `cls` ya aliasados.
 - Mousepad.
-- Ristretto.
+- Ristretto como visor de imágenes por defecto.
 - Capturas de pantalla con xfce4-screenshooter.
 - File Roller.
+- Atril como lector de PDF por defecto.
 - PulseAudio y Pavucontrol.
 
 ### Navegación y desarrollo
