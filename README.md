@@ -21,7 +21,7 @@ Android
     ├── GIMP
     ├── VLC, mpv y FFmpeg
     ├── Git, Python, Node.js y herramientas de compilación
-    └── Claude Code y Codex CLI
+    └── Claude Code, Codex CLI y opencode
 ```
 
 ## Decisiones de estabilidad
@@ -90,6 +90,7 @@ La primera ejecución instala y luego inicia el escritorio. Las siguientes ejecu
 - Build Essential y pkg-config.
 - Claude Code.
 - OpenAI Codex CLI.
+- opencode.
 
 ### Oficina y multimedia
 
