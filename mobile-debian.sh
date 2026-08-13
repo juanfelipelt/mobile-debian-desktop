@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.8.0"
+VERSION="1.7.0"
 REPO_RAW="https://raw.githubusercontent.com/juanfelipelt/mobile-debian-desktop/main"
 
 # Las claves que se guardan en el archivo de configuración. Lo que el usuario
@@ -335,22 +335,6 @@ if [[ "$force" == 1 ]] || ! command -v claude >/dev/null 2>&1; then
   bash "$HOME/.cache/mobile-debian/installers/claude-install.sh"
 else
   echo "Claude Code ya está instalado."
-fi
-
-if [[ "$force" == 1 ]] || ! command -v opencode >/dev/null 2>&1; then
-  echo "Instalando opencode (60 MB comprimidos)"
-  archive="$HOME/.cache/mobile-debian/installers/opencode.tar.gz"
-  if curl -fSL --retry 2 \
-       https://github.com/sst/opencode/releases/latest/download/opencode-linux-arm64.tar.gz \
-       -o "$archive" &&
-     tar -xzf "$archive" -C "$HOME/.local/bin" opencode; then
-    chmod 0755 "$HOME/.local/bin/opencode"
-  else
-    echo "[AVISO] No se pudo instalar opencode." >&2
-  fi
-  rm -f "$archive"
-else
-  echo "opencode ya está instalado."
 fi
 
 if [[ "$force" == 1 ]] || ! command -v codex >/dev/null 2>&1; then
@@ -1491,7 +1475,7 @@ doctor(){
     else
       printf "MISS aplicador del tema; ejecuta: mobile-debian.sh theme\n"
     fi
-    for command_name in startxfce4 xfce4-session xfwm4 xfdesktop xfce4-panel chromium-mobile code-mobile libreoffice gimp vlc mpv ffmpeg git python3 node npm claude codex opencode glxinfo; do
+    for command_name in startxfce4 xfce4-session xfwm4 xfdesktop xfce4-panel chromium-mobile code-mobile libreoffice gimp vlc mpv ffmpeg git python3 node npm claude codex glxinfo; do
       if command -v "$command_name" >/dev/null 2>&1; then
         printf "OK   %s -> %s\n" "$command_name" "$(command -v "$command_name")"
       else
